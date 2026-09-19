@@ -14,6 +14,22 @@ const APPS_SCRIPT_CONFIG = {
 };
 const APPS_SCRIPT_REQUIRED_VERSION = "2.6.0";
 
+const isAppsScriptVersionCompatible = (version) => {
+  const current = String(version || "").trim();
+  if (!current) return true;
+  const parse = (value) => value.split(".").map((part) => Number(part));
+  const installed = parse(current);
+  const required = parse(APPS_SCRIPT_REQUIRED_VERSION);
+  if (installed.some((part) => !Number.isFinite(part)) || required.some((part) => !Number.isFinite(part))) {
+    return current === APPS_SCRIPT_REQUIRED_VERSION;
+  }
+  for (let index = 0; index < Math.max(installed.length, required.length); index += 1) {
+    const difference = Number(installed[index] || 0) - Number(required[index] || 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return true;
+};
+
 const SupabaseDb = (() => {
   let authToken = "";
   let clientTableAccess = { table_id: "", code: "" };
@@ -1993,7 +2009,7 @@ const App = (() => {
         supabaseAnonKey: SUPABASE_CONFIG.anonKey
       });
       if (!result?.ok) throw new Error(result?.error || "No fue posible inicializar el respaldo remoto.");
-      if (String(result.version || "") !== APPS_SCRIPT_REQUIRED_VERSION) {
+      if (!isAppsScriptVersionCompatible(result.version)) {
         toast(`Publica Code.gs ${APPS_SCRIPT_REQUIRED_VERSION} para activar movimientos, correcciones y reinicios completos.`, "error", "appscript-version-required");
       }
       setInventorySyncStatus("Respaldo remoto listo", "synced", "cloud-check");
@@ -5767,9 +5783,11 @@ const App = (() => {
       <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${isPaid ? "Factura" : "Pre-cuenta"} ${escapeHTML(receiptNumber)}</title>
       <style>
         @page { size: 80mm auto; margin: 3mm; }
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; color: #000; }
         html { display: block; visibility: visible; min-height: 0; margin: 0; padding: 0; color: #000; background: #fff; }
-        body { display: block; visibility: visible; width: 72mm; min-height: 0; margin: 0 auto; padding: 0; color: #000; background: #fff; font: 12px/1.35 "Courier New", monospace; }
+        body { display: block; visibility: visible; width: 72mm; min-height: 0; margin: 0 auto; padding: 0; color: #000; background: #fff; font: 700 12px/1.35 "Courier New", monospace; }
+        strong { color: #000; font-weight: 900; }
+        small { color: #000; font-weight: 700; }
         .logo { margin: 2mm 0 0; text-align: center; font: 900 22px/1 Arial, sans-serif; letter-spacing: .7px; }
         .subtitle, .center { text-align: center; }
         .subtitle { margin: 1mm 0 3mm; font-weight: 700; }
@@ -5784,7 +5802,7 @@ const App = (() => {
         @media screen { body { padding: 8mm 4mm; box-shadow: 0 0 22px #bbb; } }
         @media print {
           html { display: block !important; visibility: visible !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
-          body { display: block !important; visibility: visible !important; width: 72mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; }
+          body { display: block !important; visibility: visible !important; width: 72mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; color: #000 !important; font-weight: 700 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
       </style></head><body>
         <div class="logo">${escapeHTML(businessName)}</div>
