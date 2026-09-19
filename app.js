@@ -5782,27 +5782,30 @@ const App = (() => {
     return `<!doctype html>
       <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${isPaid ? "Factura" : "Pre-cuenta"} ${escapeHTML(receiptNumber)}</title>
       <style>
-        @page { size: 80mm auto; margin: 3mm; }
+        @page { size: 58mm auto; margin: 2mm 5mm; }
         * { box-sizing: border-box; color: #000; }
         html { display: block; visibility: visible; min-height: 0; margin: 0; padding: 0; color: #000; background: #fff; }
-        body { display: block; visibility: visible; width: 72mm; min-height: 0; margin: 0 auto; padding: 0; color: #000; background: #fff; font: 700 12px/1.35 "Courier New", monospace; }
+        body { display: block; visibility: visible; width: 48mm; max-width: 48mm; min-height: 0; margin: 0 auto; padding: 0; overflow-wrap: anywhere; color: #000; background: #fff; font: 700 12px/1.35 "Courier New", monospace; }
         strong { color: #000; font-weight: 900; }
         small { color: #000; font-weight: 700; }
         .logo { margin: 2mm 0 0; text-align: center; font: 900 22px/1 Arial, sans-serif; letter-spacing: .7px; }
         .subtitle, .center { text-align: center; }
         .subtitle { margin: 1mm 0 3mm; font-weight: 700; }
         .rule { margin: 2.5mm 0; border-top: 1px dashed #000; }
-        .meta, .totals { display: grid; grid-template-columns: 1fr auto; gap: 1mm 3mm; }
+        .meta, .totals { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 1mm 2mm; align-items: start; width: 100%; }
         .items { display: grid; gap: 2mm; }
-        .item { display: grid; grid-template-columns: 1fr auto; gap: 2mm; }
+        .item { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 2mm; align-items: start; width: 100%; }
+        .meta > *, .totals > *, .item > * { min-width: 0; }
+        .meta strong { max-width: 30mm; overflow-wrap: anywhere; text-align: right; }
+        .totals strong, .item > strong { white-space: nowrap; text-align: right; }
         .item small { display: block; }
-        .total { margin-top: 1.5mm; font-size: 16px; font-weight: 900; }
+        .total { margin-top: 1.5mm; font-size: 15px; font-weight: 900; }
         .paid { padding: 1.5mm; border: 2px solid #000; text-align: center; font-weight: 900; }
         .footer { margin-top: 3mm; text-align: center; }
         @media screen { body { padding: 8mm 4mm; box-shadow: 0 0 22px #bbb; } }
         @media print {
           html { display: block !important; visibility: visible !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
-          body { display: block !important; visibility: visible !important; width: 72mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; color: #000 !important; font-weight: 700 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body { display: block !important; visibility: visible !important; width: 48mm !important; max-width: 48mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; color: #000 !important; font-weight: 700 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
       </style></head><body>
         <div class="logo">${escapeHTML(businessName)}</div>
