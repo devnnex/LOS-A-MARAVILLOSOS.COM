@@ -10,7 +10,7 @@ try { SUPABASE_CONFIG.url = new URL(String(SUPABASE_CONFIG.url || "").trim()).or
 
 const APPS_SCRIPT_CONFIG = {
   // Tambien puede configurarse desde Inventario > Respaldo remoto del negocio.
-  webAppUrl: "https://script.google.com/macros/s/AKfycby0TL-s_LiNYjb6jfED08loJbMk9ppCBKw4DuM_ZOVNv1h2g48bnUf_UM883QQQo6nL/exec"
+  webAppUrl: "https://script.google.com/macros/s/AKfycbxMzNB5IrnCvJyuJGqbPC-f0NFMqYnTumJIWahelbMv0ubZzR4RCKheXjLFODj4Tl2L/exec"
 };
 const APPS_SCRIPT_REQUIRED_VERSION = "2.6.0";
 
