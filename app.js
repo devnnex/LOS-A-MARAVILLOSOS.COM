@@ -6076,10 +6076,10 @@ const App = (() => {
         @page { size: 80mm auto; margin: 3mm; }
         * { box-sizing: border-box; color: #000; text-shadow: .15px 0 #000; -webkit-text-stroke: .08px #000; }
         html { display: block; visibility: visible; min-height: 0; margin: 0; padding: 0; color: #000; background: #fff; }
-        body { display: block; visibility: visible; width: 72mm; max-width: 72mm; min-height: 0; margin: 0 auto; padding: 0 3mm; overflow-wrap: anywhere; color: #000; background: #fff; font: 900 12.5px/1.38 "Courier New", monospace; }
+        body { display: block; visibility: visible; width: 72mm; max-width: 72mm; min-height: 0; margin: 0 auto; padding: 0 3mm; overflow-wrap: anywhere; color: #000; background: #fff; font: 900 14.5px/1.38 "Courier New", monospace; }
         strong { color: #000; font-weight: 900; }
-        small { color: #000; font-size: 11.5px; font-weight: 900; }
-        .logo { margin: 2mm 0 0; text-align: center; font: 900 21px/1 Arial, sans-serif; letter-spacing: .5px; }
+        small { color: #000; font-size: 13.5px; font-weight: 900; }
+        .logo { margin: 2mm 0 0; text-align: center; font: 900 23px/1 Arial, sans-serif; letter-spacing: .5px; }
         .subtitle, .center { text-align: center; }
         .subtitle { margin: 1mm 0 3mm; font-weight: 900; }
         .rule { margin: 2.5mm 0; border-top: 1px dashed #000; }
@@ -6087,11 +6087,11 @@ const App = (() => {
         .items { display: grid; gap: 2mm; }
         .item { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 2mm; align-items: start; width: 100%; padding: 0 4mm; }
         .meta > *, .totals > *, .item > * { min-width: 0; }
-        .meta strong { max-width: 27mm; overflow-wrap: anywhere; text-align: right; font-size: 12.5px; }
-        .totals strong, .item > strong { white-space: nowrap; text-align: right; font-size: 12.5px; }
+        .meta strong { max-width: 27mm; overflow-wrap: anywhere; text-align: right; font-size: 14.5px; }
+        .totals strong, .item > strong { white-space: nowrap; text-align: right; font-size: 14.5px; }
         .item small { display: block; }
-        .total { margin-top: 1.5mm; font-size: 16px; font-weight: 900; }
-        .totals strong.total { font-size: 15.5px; }
+        .total { margin-top: 1.5mm; font-size: 18px; font-weight: 900; }
+        .totals strong.total { font-size: 17.5px; }
         .paid { padding: 1.5mm; border: 2px solid #000; text-align: center; font-weight: 900; }
         .footer { margin-top: 3mm; text-align: center; }
         @media screen { body { padding: 8mm 4mm; box-shadow: 0 0 22px #bbb; } }
