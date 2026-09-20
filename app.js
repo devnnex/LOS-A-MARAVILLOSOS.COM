@@ -12,7 +12,8 @@ const APPS_SCRIPT_CONFIG = {
   // Tambien puede configurarse desde Inventario > Respaldo remoto del negocio.
   webAppUrl: "https://script.google.com/macros/s/AKfycbxMzNB5IrnCvJyuJGqbPC-f0NFMqYnTumJIWahelbMv0ubZzR4RCKheXjLFODj4Tl2L/exec"
 };
-const APPS_SCRIPT_REQUIRED_VERSION = "2.6.0";
+const APPS_SCRIPT_REQUIRED_VERSION = "2.7.0";
+const APPS_SCRIPT_TIMEOUT_MS = 45000;
 
 const isAppsScriptVersionCompatible = (version) => {
   const current = String(version || "").trim();
@@ -29,6 +30,17 @@ const isAppsScriptVersionCompatible = (version) => {
   }
   return true;
 };
+
+const transientAppsScriptError = (message) => {
+  const error = new Error(message);
+  error.transient = true;
+  return error;
+};
+
+const isTransientAppsScriptError = (error) => Boolean(
+  error?.transient
+  || /failed to fetch|networkerror|network request failed|load failed|aborterror|timeout/i.test(String(error?.message || error || ""))
+);
 
 const SupabaseDb = (() => {
   let authToken = "";
@@ -1865,7 +1877,7 @@ const App = (() => {
     return true;
   };
 
-  const appsScriptRequest = async (action, payload = {}, timeoutMs = 25000) => {
+  const appsScriptRequest = async (action, payload = {}, timeoutMs = APPS_SCRIPT_TIMEOUT_MS) => {
     if (!isAppsScriptConfigured()) throw new Error("El respaldo remoto no esta configurado.");
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -1886,11 +1898,11 @@ const App = (() => {
       const text = await response.text();
       let result;
       try { result = JSON.parse(text); } catch (error) {
-        throw new Error("El respaldo remoto necesita publicar la version nueva de Code.gs.");
+        throw transientAppsScriptError("La respuesta del respaldo remoto todavía se está confirmando.");
       }
       return result || { ok: false, error: "Respuesta vacia del respaldo remoto." };
     } catch (error) {
-      if (error?.name === "AbortError") throw new Error("Tiempo de espera agotado en el respaldo remoto.");
+      if (error?.name === "AbortError") throw transientAppsScriptError("La sincronización remota continúa en segundo plano.");
       throw error;
     } finally {
       clearTimeout(timer);
@@ -2063,6 +2075,10 @@ const App = (() => {
       if (!readAppsScriptOutbox().length) await syncInventoryWithAppsScript();
       return true;
     } catch (error) {
+      if (isTransientAppsScriptError(error)) {
+        setInventorySyncStatus("Sincronización remota en segundo plano", "pending", "refresh-cw");
+        return false;
+      }
       setInventorySyncStatus("Respaldo pendiente de configuracion", "error", "cloud-off");
       toast(String(error?.message || "No fue posible preparar el respaldo remoto."), "error", "remote-bootstrap-failed");
       return false;
@@ -4944,7 +4960,7 @@ const App = (() => {
     setIncomeReportStatus("Actualizando informe", "loading", "loader-circle");
     try {
       if (!isAppsScriptConfigured()) throw new Error("El historial remoto no está configurado.");
-      const result = await appsScriptRequest("get_income_report", { filters }, 40000);
+      const result = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
       if (!result?.ok) throw new Error(result?.error || "No se pudo consultar el historial.");
       if (requestId !== state.incomeRequestId) return false;
       state.incomeLoading = false;
