@@ -5597,13 +5597,40 @@ const App = (() => {
     return true;
   };
 
-  const saveOutdoorTableZonesRemotely = async (selectedIds) => retryQuiet(
-    () => state.sb.rpc("save_table_zones", {
-      auth_token: state.authToken,
-      outdoor_table_ids: [...selectedIds]
-    }),
-    4
-  );
+  const saveOutdoorTableZonesRemotely = async (selectedIds) => {
+    const outdoorIds = new Set([...selectedIds].map(String));
+    const savedByRpc = await dbQuiet(
+      state.sb.rpc("save_table_zones", {
+        auth_token: state.authToken,
+        outdoor_table_ids: [...outdoorIds]
+      }),
+      null
+    );
+    if (savedByRpc?.ok) return savedByRpc;
+
+    const tables = normalTables();
+    const saveGroup = async (isOutdoor) => {
+      const ids = tables
+        .filter((table) => outdoorIds.has(String(table.id)) === isOutdoor)
+        .map((table) => table.id);
+      if (!ids.length) return [];
+      const saved = await retryQuiet(
+        () => state.sb.from("restaurant_tables")
+          .update({ is_outdoor: isOutdoor })
+          .in("id", ids)
+          .select("id,is_outdoor"),
+        4
+      );
+      return Array.isArray(saved) && saved.length === ids.length ? saved : null;
+    };
+
+    const [outdoorTables, indoorTables] = await Promise.all([
+      saveGroup(true),
+      saveGroup(false)
+    ]);
+    if (!outdoorTables || !indoorTables) return null;
+    return { ok: true, tables: [...outdoorTables, ...indoorTables] };
+  };
 
   const saveBusiness = async (form) => {
     const originalBusiness = state.business ? { ...state.business } : null;
