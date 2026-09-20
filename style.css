@@ -3385,6 +3385,8 @@ button:disabled {
   margin-bottom: .9rem;
 }
 
+.inventory-catalog .inventory-toolbar { grid-template-columns: minmax(0, 1fr) repeat(2, minmax(150px, 180px)); }
+
 .inventory-toolbar label { display: grid; gap: .38rem; color: var(--muted); font-size: .8rem; font-weight: 750; }
 .inventory-search-control,
 .product-search-control {
@@ -3404,6 +3406,16 @@ button:disabled {
 
 .inventory-search-control input,
 .product-search-control input { padding-left: 2.65rem; background: #fff; }
+
+#inventorySearch {
+  border-color: #f05a28;
+  box-shadow: 0 0 0 1px rgba(240, 90, 40, .22);
+}
+
+#inventorySearch:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(240, 90, 40, .16);
+}
 
 .inventory-list { display: grid; gap: .65rem; min-width: 0; max-width: 100%; }
 .inventory-row {
@@ -3576,6 +3588,7 @@ button:disabled {
   .inventory-metrics,
   .inventory-form,
   .inventory-live-calculation,
+  .inventory-catalog .inventory-toolbar,
   .inventory-toolbar,
   .mixed-payment { grid-template-columns: 1fr; }
   .inventory-form .wide,
@@ -4259,6 +4272,19 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 .compact-table-tile.occupied { background: #fff4ce; border-color: #e8c968; }
 .compact-table-tile.needs-attention { animation: alertBreath 1.35s ease-in-out infinite; border-color: #f04438; }
 .compact-table-tile .table-furniture-icon { grid-row: 1; color: #d88612; }
+.compact-table-tile.outdoor.free {
+  color: #fff;
+  border-color: #0b56bc;
+  background: linear-gradient(145deg, #1976dd, #0b56bc);
+  box-shadow: 0 8px 20px rgba(11, 86, 188, .22);
+}
+.compact-table-tile.outdoor.free .table-furniture-icon,
+.compact-table-tile.outdoor.free small { color: #fff; }
+.compact-table-tile.outdoor.occupied,
+.compact-table-tile.outdoor.occupied.needs-attention {
+  border: 2px solid #146fd1;
+  box-shadow: 0 0 0 2px rgba(20, 111, 209, .14), 0 7px 18px rgba(16, 24, 40, .06);
+}
 .compact-table-tile strong { align-self: end; text-align: left; font-size: .98rem; }
 .compact-table-tile small {
   grid-column: 1 / -1;
@@ -4283,6 +4309,10 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 .service-block-title strong,
 .service-block-title small { display: block; }
 .service-block-title small { margin-top: .15rem; color: #687282; font-size: .72rem; }
+.service-table-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; }
+.service-table-heading .service-block-title { min-width: 0; margin-bottom: 0; }
+.table-zone-filter { display: grid; gap: .3rem; min-width: 132px; color: #667085; font-size: .72rem; font-weight: 800; }
+.table-zone-filter select { min-height: 39px; padding-top: .45rem; padding-bottom: .45rem; background: #fff; }
 .walk-in-sale-card { display: grid; align-content: center; justify-items: start; gap: .9rem; background: linear-gradient(145deg, #f3edff, #fff); }
 .walk-in-sale-card h3 { margin: .2rem 0; font-size: 1.35rem; }
 .walk-in-sale-card p { margin: 0; color: #566171; line-height: 1.45; }
@@ -4548,6 +4578,57 @@ body[data-page="admin"] { overflow-x: hidden; }
 .tip-percentage-field.is-locked input { color: #667085; cursor: not-allowed; }
 .tip-setting-status { grid-column: 1 / -1; }
 
+.table-zone-setting-card {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: .85rem;
+  padding: 1rem;
+  border: 1px solid rgba(20, 111, 209, .22);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(20, 111, 209, .08), rgba(255, 255, 255, .97));
+}
+.table-zone-setting-head { min-width: 0; display: flex; align-items: center; gap: .75rem; }
+.table-zone-setting-head > div { min-width: 0; display: grid; gap: .2rem; }
+.table-zone-setting-head small,
+.table-zone-setting-status { color: #667085; font-size: .75rem; line-height: 1.4; }
+.table-zone-setting-icon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1976dd, #0b56bc);
+  box-shadow: 0 10px 22px rgba(11, 86, 188, .2);
+}
+.table-zone-range { display: grid; grid-template-columns: minmax(120px, 180px) minmax(120px, 180px) auto; align-items: end; gap: .65rem; }
+.table-zone-range label { display: grid; gap: .35rem; color: #4f5967; font-size: .75rem; font-weight: 800; }
+.table-zone-range-actions { display: flex; align-items: center; gap: .45rem; }
+.outdoor-table-selector { display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: .55rem; }
+.outdoor-table-option { position: relative; min-width: 0; }
+.outdoor-table-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.outdoor-table-option span {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .42rem;
+  padding: .6rem;
+  color: #344054;
+  border: 1px solid rgba(18, 24, 31, .12);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  font-size: .78rem;
+  font-weight: 850;
+  text-align: center;
+}
+.outdoor-table-option input:checked + span { color: #fff; border-color: #0b56bc; background: #146fd1; box-shadow: 0 0 0 3px rgba(20, 111, 209, .13); }
+.outdoor-table-option input:focus-visible + span { outline: 3px solid rgba(20, 111, 209, .28); outline-offset: 2px; }
+.table-zone-setting-status { margin: 0; }
+#businessForm > .form-submit { grid-column: 1 / -1; justify-self: end; }
+
 .account-summary-tip { display: grid; grid-template-columns: 1fr auto; gap: .18rem .7rem; padding: .68rem .75rem; color: #8a3a13; border: 1px solid rgba(240, 90, 40, .18); border-radius: 12px; background: #fff6f1; font-size: .75rem; }
 .account-summary-tip strong { color: #c74312; }
 .account-summary-tip small { grid-column: 1 / -1; color: #795447; font-weight: 750; }
@@ -4610,6 +4691,11 @@ body[data-page="admin"] { overflow-x: hidden; }
 @media (max-width: 760px) {
   .tip-setting-card { grid-template-columns: 1fr auto; }
   .tip-percentage-field { grid-column: 1 / -1; }
+  .table-zone-range { grid-template-columns: 1fr 1fr; }
+  .table-zone-range-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; }
+  .table-zone-range-actions button { width: 100%; justify-content: center; }
+  .service-table-heading { align-items: flex-end; flex-wrap: wrap; }
+  .service-table-heading .table-zone-filter { width: 100%; }
   .tips-kpis,
   .tips-layout { grid-template-columns: 1fr; }
   .account-detail-tip,

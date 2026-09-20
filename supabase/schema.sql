@@ -360,6 +360,29 @@ $$;
 ALTER FUNCTION "public"."get_bootstrap_data"("auth_token" "text", "table_access_code" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."save_table_zones"("auth_token" "text", "outdoor_table_ids" "uuid"[] DEFAULT ARRAY[]::"uuid"[]) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'extensions'
+    AS $$
+begin
+  perform public.require_admin(auth_token);
+  update public.restaurant_tables
+  set is_outdoor = (id = any(coalesce(outdoor_table_ids, array[]::uuid[]))),
+      updated_at = now();
+  return jsonb_build_object(
+    'ok', true,
+    'tables', (
+      select coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'is_outdoor', t.is_outdoor) order by t.table_number), '[]'::jsonb)
+      from public.restaurant_tables t
+    )
+  );
+end;
+$$;
+
+
+ALTER FUNCTION "public"."save_table_zones"("auth_token" "text", "outdoor_table_ids" "uuid"[]) OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_client_snapshot"("session_id" "uuid", "table_id" "uuid", "table_access_code" "text") RETURNS "jsonb"
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -806,8 +829,11 @@ CREATE TABLE IF NOT EXISTS "public"."business_settings" (
     "currency" "text" DEFAULT 'COP'::"text" NOT NULL,
     "tax_rate" numeric(8,4) DEFAULT 0 NOT NULL,
     "service_fee" numeric(8,4) DEFAULT 0 NOT NULL,
+    "tips_enabled" boolean DEFAULT false NOT NULL,
+    "tip_percentage" integer DEFAULT 10 NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "business_settings_tip_percentage_check" CHECK (("tip_percentage" >= 1) AND ("tip_percentage" <= 100))
 );
 
 
@@ -880,6 +906,7 @@ CREATE TABLE IF NOT EXISTS "public"."restaurant_tables" (
     "qr_code" "text" NOT NULL,
     "qr_image_url" "text",
     "is_active" boolean DEFAULT true NOT NULL,
+    "is_outdoor" boolean DEFAULT false NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "restaurant_tables_table_number_check" CHECK (("table_number" > 0))
@@ -1410,6 +1437,11 @@ GRANT ALL ON FUNCTION "public"."get_bootstrap_data"("auth_token" "text", "table_
 GRANT ALL ON FUNCTION "public"."get_bootstrap_data"("auth_token" "text", "table_access_code" "text") TO "service_role";
 
 
+GRANT ALL ON FUNCTION "public"."save_table_zones"("auth_token" "text", "outdoor_table_ids" "uuid"[]) TO "anon";
+GRANT ALL ON FUNCTION "public"."save_table_zones"("auth_token" "text", "outdoor_table_ids" "uuid"[]) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."save_table_zones"("auth_token" "text", "outdoor_table_ids" "uuid"[]) TO "service_role";
+
+
 
 GRANT ALL ON FUNCTION "public"."get_client_snapshot"("session_id" "uuid", "table_id" "uuid", "table_access_code" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_client_snapshot"("session_id" "uuid", "table_id" "uuid", "table_access_code" "text") TO "authenticated";
@@ -1827,6 +1859,10 @@ begin
   begin alter publication supabase_realtime add table public.table_sessions; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.session_items; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.chat_messages; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.business_settings; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.restaurant_tables; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.menu_categories; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.menu_items; exception when duplicate_object then null; end;
 end $$;
 
 commit;

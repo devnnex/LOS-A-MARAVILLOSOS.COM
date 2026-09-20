@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="pwa-icon.svg" id="appFavicon" type="image/svg+xml">
     <link rel="apple-touch-icon" href="pwa-icon.svg" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20260919-tips-reset-warning-1">
+    <link rel="stylesheet" href="style.css?v=20260920-shared-refresh-zones-1">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -123,6 +123,13 @@
               <span class="eyebrow">Salon</span>
               <h2>Estado de mesas</h2>
             </div>
+            <label class="table-zone-filter">Mostrar
+              <select id="dashboardTableZoneFilter" aria-label="Filtrar mesas del inicio por ubicación">
+                <option value="all">Todas</option>
+                <option value="outdoor">Afuera</option>
+                <option value="indoor">Adentro</option>
+              </select>
+            </label>
           </div>
           <div class="tables-grid" id="tablesGrid"></div>
         </div>
@@ -152,7 +159,6 @@
             <span><i data-lucide="image-up"></i> Portada</span>
             <small data-upload-status="cover_url">Seleccionar imagen</small>
           </label>
-          <button class="primary form-submit" type="submit"><i data-lucide="save"></i> Guardar marca</button>
           <div class="tip-setting-card wide">
             <div class="tip-setting-copy">
               <span class="tip-setting-icon"><i data-lucide="hand-coins"></i></span>
@@ -167,6 +173,23 @@
             </label>
             <small class="tip-setting-status" id="tipSettingStatus">Configura el porcentaje y enciende el switch para aplicarlo.</small>
           </div>
+          <div class="table-zone-setting-card wide">
+            <div class="table-zone-setting-head">
+              <span class="table-zone-setting-icon"><i data-lucide="map-pinned"></i></span>
+              <div><strong>Mesas de afuera</strong><small>Márcalas una por una o selecciona un rango. Se verán azules cuando estén libres y conservarán un borde azul cuando tengan consumo.</small></div>
+            </div>
+            <div class="table-zone-range">
+              <label>Desde<select id="outdoorTableFrom" aria-label="Primera mesa del rango"></select></label>
+              <label>Hasta<select id="outdoorTableTo" aria-label="Última mesa del rango"></select></label>
+              <div class="table-zone-range-actions">
+                <button class="ghost" id="selectOutdoorRange" type="button"><i data-lucide="tree-pine"></i> Afuera</button>
+                <button class="ghost" id="clearOutdoorRange" type="button"><i data-lucide="house"></i> Adentro</button>
+              </div>
+            </div>
+            <div class="outdoor-table-selector" id="outdoorTableSelector" aria-label="Seleccionar mesas de afuera"></div>
+            <small class="table-zone-setting-status" id="tableZoneSettingStatus">Las mesas no marcadas se consideran mesas de adentro.</small>
+          </div>
+          <button class="primary form-submit" type="submit"><i data-lucide="save"></i> Guardar configuración</button>
         </form>
       </section>
 
@@ -297,6 +320,11 @@
                   <option value="ok">Existencia normal</option>
                   <option value="low">Stock bajo</option>
                   <option value="out">Agotados</option>
+                </select>
+              </label>
+              <label>Categoría
+                <select id="inventoryCategoryFilter">
+                  <option value="all">Todas</option>
                 </select>
               </label>
             </div>
@@ -453,7 +481,16 @@
             <button class="ghost service-point-add" id="addServicePoint" type="button" data-admin-only><i data-lucide="plus"></i> Agregar puesto</button>
           </article>
           <article class="service-tables-panel">
-            <div class="service-block-title"><span><i data-lucide="armchair"></i></span><div><strong>Ventas por mesa</strong><small>Verde libre, amarillo con cuenta abierta</small></div></div>
+            <div class="service-table-heading">
+              <div class="service-block-title"><span><i data-lucide="armchair"></i></span><div><strong>Ventas por mesa</strong><small>Verde libre, azul afuera, amarillo con cuenta abierta</small></div></div>
+              <label class="table-zone-filter">Mostrar
+                <select id="serviceTableZoneFilter" aria-label="Filtrar mesas por ubicación">
+                  <option value="all">Todas</option>
+                  <option value="outdoor">Afuera</option>
+                  <option value="indoor">Adentro</option>
+                </select>
+              </label>
+            </div>
             <div class="compact-tables-grid" id="waiterTablesGrid"></div>
           </article>
           <article class="walk-in-sale-card">
@@ -764,6 +801,6 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20260919-tips-reset-warning-1"></script>
+    <script src="app.js?v=20260920-shared-refresh-zones-1"></script>
   </body>
 </html>
