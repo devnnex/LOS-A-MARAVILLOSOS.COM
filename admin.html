@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="pwa-icon.svg" id="appFavicon" type="image/svg+xml">
     <link rel="apple-touch-icon" href="pwa-icon.svg" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20260920-shared-refresh-zones-1">
+    <link rel="stylesheet" href="style.css?v=20260920-receipt-tip-modal-1">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -700,6 +700,18 @@
       </form>
     </dialog>
 
+    <dialog class="modal tip-required-modal" id="tipRequiredDialog">
+      <form class="modal-card tip-required-card" method="dialog">
+        <span class="tip-required-icon"><i data-lucide="hand-coins"></i></span>
+        <div>
+          <span class="eyebrow">Falta elegir la propina</span>
+          <h2>Selecciona una opción para continuar</h2>
+          <p>Elige “Sin propina”, “Con propina” o escribe el valor manual que desea dejar el cliente.</p>
+        </div>
+        <button class="primary" type="submit" value="ok" autofocus>Entendido</button>
+      </form>
+    </dialog>
+
     <dialog class="modal receipt-result-modal" id="receiptResultDialog">
       <div class="modal-card receipt-result-card">
         <span class="receipt-result-icon"><i data-lucide="badge-check"></i></span>
@@ -801,6 +813,6 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20260920-appscript-status-1"></script>
+    <script src="app.js?v=20260920-receipt-tip-modal-1"></script>
   </body>
 </html>

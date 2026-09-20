@@ -4639,6 +4639,15 @@ body[data-page="admin"] { overflow-x: hidden; }
 
 .payment-modal { width: min(96vw, 860px); }
 .payment-card { width: 100%; max-width: none; }
+.tip-required-modal { width: min(92vw, 430px); margin: auto; }
+.tip-required-card { justify-items: center; gap: .8rem; padding: 1.35rem; text-align: center; }
+.tip-required-card > div { display: grid; gap: .35rem; }
+.tip-required-card h2,
+.tip-required-card p { margin: 0; }
+.tip-required-card p { color: #5b6573; line-height: 1.5; }
+.tip-required-card .primary { width: 100%; justify-content: center; }
+.tip-required-icon { width: 58px; height: 58px; display: grid; place-items: center; color: #fff; border-radius: 18px; background: linear-gradient(135deg, var(--accent), #d94713); box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 28%, transparent); }
+.tip-required-icon svg { width: 29px; height: 29px; }
 .payment-tip-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin: 0; padding: .85rem; border: 1px solid rgba(240, 90, 40, .18); border-radius: 16px; background: #fff9f6; }
 .payment-tip-choice legend { padding: 0 .35rem; color: #4f5967; font-size: .84rem; font-weight: 850; }
 .payment-tip-option { position: relative; }
@@ -4689,6 +4698,7 @@ body[data-page="admin"] { overflow-x: hidden; }
 .tip-record > strong { color: #0e6840; white-space: nowrap; }
 
 @media (max-width: 760px) {
+  .tip-required-modal { width: calc(100vw - 1.5rem); margin: auto; }
   .tip-setting-card { grid-template-columns: 1fr auto; }
   .tip-percentage-field { grid-column: 1 / -1; }
   .table-zone-range { grid-template-columns: 1fr 1fr; }

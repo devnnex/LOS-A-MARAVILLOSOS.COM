@@ -6074,30 +6074,30 @@ const App = (() => {
       <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${isPaid ? "Factura" : "Pre-cuenta"} ${escapeHTML(receiptNumber)}</title>
       <style>
         @page { size: 80mm auto; margin: 3mm; }
-        * { box-sizing: border-box; color: #000; }
+        * { box-sizing: border-box; color: #000; text-shadow: 0 0 .01px #000; }
         html { display: block; visibility: visible; min-height: 0; margin: 0; padding: 0; color: #000; background: #fff; }
-        body { display: block; visibility: visible; width: 72mm; max-width: 72mm; min-height: 0; margin: 0 auto; padding: 0 3mm; overflow-wrap: anywhere; color: #000; background: #fff; font: 700 10px/1.35 "Courier New", monospace; }
+        body { display: block; visibility: visible; width: 72mm; max-width: 72mm; min-height: 0; margin: 0 auto; padding: 0 3mm; overflow-wrap: anywhere; color: #000; background: #fff; font: 800 11px/1.38 "Courier New", monospace; }
         strong { color: #000; font-weight: 900; }
-        small { color: #000; font-size: 9px; font-weight: 700; }
-        .logo { margin: 2mm 0 0; text-align: center; font: 900 18px/1 Arial, sans-serif; letter-spacing: .5px; }
+        small { color: #000; font-size: 10px; font-weight: 800; }
+        .logo { margin: 2mm 0 0; text-align: center; font: 900 19px/1 Arial, sans-serif; letter-spacing: .5px; }
         .subtitle, .center { text-align: center; }
-        .subtitle { margin: 1mm 0 3mm; font-weight: 700; }
+        .subtitle { margin: 1mm 0 3mm; font-weight: 800; }
         .rule { margin: 2.5mm 0; border-top: 1px dashed #000; }
-        .meta, .totals { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 1mm 2mm; align-items: start; width: 100%; padding: 0 2mm; }
+        .meta, .totals { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 1mm 2mm; align-items: start; width: 100%; padding: 0 4mm; }
         .items { display: grid; gap: 2mm; }
-        .item { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 2mm; align-items: start; width: 100%; padding: 0 2mm; }
+        .item { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 2mm; align-items: start; width: 100%; padding: 0 4mm; }
         .meta > *, .totals > *, .item > * { min-width: 0; }
-        .meta strong { max-width: 30mm; overflow-wrap: anywhere; text-align: right; font-size: 9px; }
-        .totals strong, .item > strong { white-space: nowrap; text-align: right; font-size: 9px; }
+        .meta strong { max-width: 27mm; overflow-wrap: anywhere; text-align: right; font-size: 10.5px; }
+        .totals strong, .item > strong { white-space: nowrap; text-align: right; font-size: 10.5px; }
         .item small { display: block; }
-        .total { margin-top: 1.5mm; font-size: 13px; font-weight: 900; }
-        .totals strong.total { font-size: 12px; }
+        .total { margin-top: 1.5mm; font-size: 14px; font-weight: 900; }
+        .totals strong.total { font-size: 13.5px; }
         .paid { padding: 1.5mm; border: 2px solid #000; text-align: center; font-weight: 900; }
         .footer { margin-top: 3mm; text-align: center; }
         @media screen { body { padding: 8mm 4mm; box-shadow: 0 0 22px #bbb; } }
         @media print {
           html { display: block !important; visibility: visible !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
-          body { display: block !important; visibility: visible !important; width: 72mm !important; max-width: 72mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 3mm !important; overflow: visible !important; color: #000 !important; font-weight: 700 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body { display: block !important; visibility: visible !important; width: 72mm !important; max-width: 72mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 3mm !important; overflow: visible !important; color: #000 !important; font-weight: 800 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
       </style></head><body>
         <div class="logo">${escapeHTML(businessName)}</div>
@@ -6240,10 +6240,20 @@ const App = (() => {
     setCurrencyInputValue(form.cash_received, total);
     setCurrencyInputValue(form.mixed_amount_one, total);
     setCurrencyInputValue(form.mixed_amount_two, 0);
-    const canSubmit = form.dataset.hasItems === "1" && (!enabled || Boolean(choice));
+    const canSubmit = form.dataset.hasItems === "1";
     $$('button[type="submit"]', form).forEach((button) => { button.disabled = !canSubmit; });
     updateMixedPayment("mixed_amount_one");
     updateCashChange();
+  };
+
+  const showTipRequiredDialog = () => {
+    const dialog = $("#tipRequiredDialog");
+    if (!dialog) {
+      toast("Antes de cobrar, elige una opción de propina.", "error", "tip-choice-required");
+      return;
+    }
+    if (!dialog.open) dialog.showModal();
+    refreshIcons();
   };
 
   const openPaymentDialog = (sessionId) => {
@@ -6288,6 +6298,12 @@ const App = (() => {
     $("#cashReceivedFields").hidden = false;
     updatePaymentTipChoice();
     dialog.showModal();
+    form.scrollTop = 0;
+    dialog.scrollTop = 0;
+    window.requestAnimationFrame(() => {
+      form.scrollTop = 0;
+      dialog.scrollTop = 0;
+    });
     refreshIcons();
   };
 
@@ -6402,8 +6418,7 @@ const App = (() => {
       return;
     }
     if (tipsEnabled() && !form.tip_choice?.value) {
-      toast("Selecciona si el cliente paga con o sin propina.", "error", "tip-choice-required");
-      form.querySelector('input[name="tip_choice"]')?.focus({ preventScroll: true });
+      showTipRequiredDialog();
       return;
     }
     const payment = paymentFromForm(form);
