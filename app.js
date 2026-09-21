@@ -12,7 +12,7 @@ const APPS_SCRIPT_CONFIG = {
   // Tambien puede configurarse desde Inventario > Respaldo remoto del negocio.
   webAppUrl: "https://script.google.com/macros/s/AKfycbxMzNB5IrnCvJyuJGqbPC-f0NFMqYnTumJIWahelbMv0ubZzR4RCKheXjLFODj4Tl2L/exec"
 };
-const APPS_SCRIPT_REQUIRED_VERSION = "2.7.0";
+const APPS_SCRIPT_REQUIRED_VERSION = "2.8.0";
 const APPS_SCRIPT_TIMEOUT_MS = 45000;
 
 const isAppsScriptVersionCompatible = (version) => {
@@ -1782,7 +1782,8 @@ const App = (() => {
       stock: Math.max(0, Number(meta.stock || 0)),
       minStock: Math.max(0, Number(meta.minStock ?? 5)),
       unit: meta.unit || "unidad",
-      updatedAt: meta.updatedAt || ""
+      updatedAt: meta.updatedAt || "",
+      version: Math.max(0, Number(meta.version || 0))
     };
   };
 
@@ -1877,7 +1878,7 @@ const App = (() => {
     return true;
   };
 
-  const appsScriptRequest = async (action, payload = {}, timeoutMs = APPS_SCRIPT_TIMEOUT_MS) => {
+  const appsScriptRequest = async (action, payload = {}, timeoutMs = APPS_SCRIPT_TIMEOUT_MS, operationId = "") => {
     if (!isAppsScriptConfigured()) throw new Error("El respaldo remoto no esta configurado.");
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -1887,6 +1888,7 @@ const App = (() => {
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({
           action,
+          operationId,
           authToken: state.authToken,
           origin: location.origin,
           payload
@@ -1922,7 +1924,8 @@ const App = (() => {
       stock: inventory.stock,
       minStock: inventory.minStock,
       isAvailable: item.is_available !== false,
-      updatedAt: inventory.updatedAt || new Date().toISOString()
+      updatedAt: inventory.updatedAt || new Date().toISOString(),
+      version: inventory.version
     };
   };
 
@@ -1986,7 +1989,7 @@ const App = (() => {
       while (jobs.length) {
         const job = jobs[0];
         setInventorySyncStatus(`Sincronizando ${jobs.length} pendiente${jobs.length === 1 ? "" : "s"}`, "pending", "refresh-cw");
-        const result = await appsScriptRequest(job.action, job.payload);
+        const result = await appsScriptRequest(job.action, job.payload, APPS_SCRIPT_TIMEOUT_MS, job.id);
         const queuedAfterRequest = readAppsScriptOutbox();
         const pendingAfterCurrent = queuedAfterRequest.filter((entry) => entry.id !== job.id);
         const pendingProductIds = new Set(pendingAfterCurrent.map((entry) =>
@@ -4383,7 +4386,7 @@ const App = (() => {
     list.innerHTML = movements.length ? movements.map((movement) => {
       const delta = Number(movement.delta ?? movement.quantityChange ?? 0);
       const kind = delta >= 0 ? "entry" : "exit";
-      return `<article class="movement-row ${kind}"><span class="movement-direction">${icon(kind === "entry" ? "arrow-down-left" : "arrow-up-right", 20)}</span><div class="movement-product"><strong>${escapeHTML(movement.product || "Producto")}</strong><small>${escapeHTML(movement.code || "")}${movement.reference ? ` · ${escapeHTML(movement.reference)}` : ""}</small></div><div><small>Movimiento</small><strong>${escapeHTML(String(movement.type || (kind === "entry" ? "ENTRADA" : "SALIDA")).replaceAll("_", " "))}</strong></div><div><small>Existencia</small><strong>${Number(movement.before || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })} → ${Number(movement.after || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></div><strong class="movement-delta">${delta > 0 ? "+" : ""}${delta.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong><div class="movement-audit"><strong>${escapeHTML(movement.user || "Sistema")}</strong><small>${escapeHTML(prettyDateTime(movement.date))}</small></div></article>`;
+      return `<article class="movement-row ${kind}"><span class="movement-direction">${icon(kind === "entry" ? "arrow-down-left" : "arrow-up-right", 20)}</span><div class="movement-product"><strong>${escapeHTML(movement.product || "Producto")}</strong><small>${escapeHTML(movement.code || "")}${movement.reference ? ` · ${escapeHTML(movement.reference)}` : ""}</small></div><div><small>Movimiento</small><strong>${escapeHTML(String(movement.type || (kind === "entry" ? "ENTRADA" : "SALIDA")).replaceAll("_", " "))}</strong></div><div><small>Existencia</small><strong>${Number(movement.before || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })} → ${Number(movement.after || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></div><strong class="movement-delta">${delta > 0 ? "+" : ""}${delta.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong><div class="movement-audit"><span><strong>${escapeHTML(movement.user || "Sistema")}</strong><small>${escapeHTML(prettyDateTime(movement.date))}</small></span><button class="icon-btn danger" type="button" data-delete-movement="${escapeHTML(movement.movementId)}" aria-label="Eliminar movimiento y restaurar existencias">${icon("trash-2", 16)}</button></div></article>`;
     }).join("") : emptyState("Sin movimientos", query ? "No hay coincidencias para este filtro." : "Las entradas y salidas apareceran aqui con su responsable.", "arrow-left-right");
     refreshIcons();
   };
@@ -4600,7 +4603,12 @@ const App = (() => {
       updatedAt: new Date().toISOString()
     };
     persistInventoryStore();
-    enqueueAppsScriptJob("set_inventory_stock", { productId: item.id, stock: nextStock, updatedAt: state.inventoryMeta[id].updatedAt }, `inventory-stock:${item.id}`);
+    enqueueAppsScriptJob("set_inventory_stock", {
+      productId: item.id,
+      stock: nextStock,
+      updatedAt: state.inventoryMeta[id].updatedAt,
+      version: current.version
+    }, `inventory-stock:${item.id}`);
     $("#inventoryAdjustDialog")?.close();
     renderInventory();
     toast(`Existencia de ${item.name} actualizada a ${nextStock.toLocaleString("es-CO", { maximumFractionDigits: 2 })}.`, "ok", `stock-adjusted:${id}:${nextStock}`);
@@ -4990,6 +4998,15 @@ const App = (() => {
     if (!synced || readAppsScriptOutbox().length) throw new Error("No fue posible terminar de guardar los cambios anteriores.");
   };
 
+  const requireCurrentAppsScriptVersion = async () => {
+    if (!isAppsScriptConfigured()) throw new Error("El respaldo remoto no está configurado.");
+    const status = await appsScriptRequest("status", {}, 12000);
+    if (!status?.ok || !isAppsScriptVersionCompatible(status.version)) {
+      throw new Error(`Publica Code.gs ${APPS_SCRIPT_REQUIRED_VERSION} antes de modificar el historial de movimientos.`);
+    }
+    return true;
+  };
+
   const resetSectionData = async (section) => {
     if (state.currentUser?.role !== "admin") return;
     const settings = {
@@ -5003,9 +5020,9 @@ const App = (() => {
       movements: {
         eyebrow: "Reiniciar movimientos",
         title: "¿Eliminar todos los movimientos?",
-        message: "Se borrará todo el historial de entradas y salidas. Las existencias actuales no cambiarán.",
+        message: "Se borrará todo el historial de entradas y salidas y cada cambio se revertirá en las existencias.",
         action: "clear_inventory_movements",
-        success: "Movimientos eliminados. El historial quedó en cero."
+        success: "Movimientos eliminados y existencias restauradas."
       },
       income: {
         eyebrow: "Reiniciar ingresos",
@@ -5033,6 +5050,15 @@ const App = (() => {
       cancel: "Conservar información"
     });
     if (!confirmed) return;
+
+    if (section === "movements") {
+      try {
+        await requireCurrentAppsScriptVersion();
+      } catch (error) {
+        toast(String(error?.message || error), "error", "movement-version-required");
+        return;
+      }
+    }
 
     const button = $(`[data-reset-section="${section}"]`);
     const buttonMarkup = button?.innerHTML || "";
@@ -5094,6 +5120,9 @@ const App = (() => {
       await waitForRemoteQueue();
       const result = await appsScriptRequest(settings.action, {}, 40000);
       if (!result?.ok || result.cleared !== true) throw new Error(result?.error || "No fue posible completar el reinicio.");
+      if (section === "movements" && !Array.isArray(result.items)) {
+        throw new Error(`Publica Code.gs ${APPS_SCRIPT_REQUIRED_VERSION} para eliminar movimientos restaurando el inventario.`);
+      }
       if (section === "inventory") {
         state.items = [];
         state.inventoryMeta = {};
@@ -5106,6 +5135,7 @@ const App = (() => {
       if (section === "movements") {
         state.inventoryMovements = [];
         persistInventoryMovements();
+        applyRemoteInventoryItems(result.items);
         renderInventoryMovements();
       }
       if (section === "income") {
@@ -5630,6 +5660,41 @@ const App = (() => {
     ]);
     if (!outdoorTables || !indoorTables) return null;
     return { ok: true, tables: [...outdoorTables, ...indoorTables] };
+  };
+
+  const deleteInventoryMovement = async (movementId) => {
+    if (state.currentUser?.role !== "admin") return;
+    const movement = state.inventoryMovements.find((entry) => String(entry.movementId) === String(movementId));
+    if (!movement) return;
+    const delta = Number(movement.delta ?? movement.quantityChange ?? 0);
+    const restoredChange = -delta;
+    const confirmed = await askForConfirmation({
+      eyebrow: "Eliminar movimiento",
+      title: `¿Eliminar el movimiento de ${movement.product || "este producto"}?`,
+      message: `El historial se eliminará y el inventario se ajustará ${restoredChange >= 0 ? "+" : ""}${restoredChange.toLocaleString("es-CO", { maximumFractionDigits: 2 })} unidades para restaurar el cambio.`,
+      accept: "Sí, eliminar y restaurar",
+      cancel: "Conservar movimiento"
+    });
+    if (!confirmed) return;
+    const button = $(`[data-delete-movement="${CSS.escape(String(movementId))}"]`);
+    if (button) button.disabled = true;
+    try {
+      await requireCurrentAppsScriptVersion();
+      await waitForRemoteQueue();
+      const result = await appsScriptRequest("delete_inventory_movement", { movementId }, 40000);
+      if (!result?.ok || result.deleted !== true || !Array.isArray(result.items)) {
+        throw new Error(result?.error || `Publica Code.gs ${APPS_SCRIPT_REQUIRED_VERSION} para eliminar movimientos restaurando el inventario.`);
+      }
+      state.inventoryMovements = state.inventoryMovements.filter((entry) => String(entry.movementId) !== String(movementId));
+      persistInventoryMovements();
+      applyRemoteInventoryItems(result.items);
+      renderInventoryMovements();
+      toast("Movimiento eliminado y existencias restauradas.", "ok", `movement-deleted:${movementId}`);
+    } catch (error) {
+      toast(String(error?.message || error), "error", `movement-delete-failed:${movementId}`);
+    } finally {
+      if (button?.isConnected) button.disabled = false;
+    }
   };
 
   const saveBusiness = async (form) => {
@@ -6365,11 +6430,36 @@ const App = (() => {
     return { method, payments: [{ method: firstMethod, amount: firstAmount }, { method: secondMethod, amount: secondAmount }] };
   };
 
+  const reflectInvoiceInIncomeReport = (invoice) => {
+    const filters = incomeFiltersFromForm();
+    const localRecord = localIncomeRecords(filters)
+      .find((record) => String(record.saleId) === String(invoice.id || invoice.sessionId));
+    if (!localRecord) return;
+    if (!state.incomeReport) {
+      state.incomeReport = localIncomeReport(filters);
+      if (state.activeAdminSection === "income") renderIncomeReport();
+      return;
+    }
+    const records = [
+      localRecord,
+      ...(state.incomeReport.records || []).filter((record) => String(record.saleId) !== String(localRecord.saleId))
+    ].sort((left, right) => String(right.date).localeCompare(String(left.date)));
+    state.incomeReport = {
+      ...state.incomeReport,
+      filters,
+      records,
+      totals: incomeTotalsFromRecords(records),
+      totalRecords: Math.max(Number(state.incomeReport.totalRecords || 0) + 1, records.length),
+      pendingCount: Number(state.incomeReport.pendingCount || 0) + 1
+    };
+    if (state.activeAdminSection === "income") renderIncomeReport();
+  };
+
   const applyInvoiceToInventory = (invoice) => {
     if (state.invoiceHistory.some((entry) => entry.sessionId === invoice.sessionId)) return false;
     state.invoiceHistory.push(invoice);
     persistInvoiceHistory();
-    state.incomeReport = null;
+    reflectInvoiceInIncomeReport(invoice);
     enqueueAppsScriptJob("record_sale", { invoice }, `sale:${invoice.sessionId}`);
     return true;
   };
@@ -7921,6 +8011,7 @@ const App = (() => {
       if (target.dataset.incomeRange) setIncomeRange(target.dataset.incomeRange);
       if (target.dataset.editIncome) openIncomeEdit(target.dataset.editIncome);
       if (target.dataset.deleteIncome) openDeleteIncomeDialog(target.dataset.deleteIncome);
+      if (target.dataset.deleteMovement) await deleteInventoryMovement(target.dataset.deleteMovement);
       if (target.id === "refreshIncomeReport") {
         await runRefreshAction(target, async () => {
           const flushed = await flushAppsScriptOutbox();

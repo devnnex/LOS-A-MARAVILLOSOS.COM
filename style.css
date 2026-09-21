@@ -4344,7 +4344,8 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 .movement-product > strong { color: #17191f; font-size: .88rem; }
 .movement-delta { color: #07844c; font-size: 1.05rem !important; text-align: right; }
 .movement-row.exit .movement-delta { color: #d92d20; }
-.movement-audit { text-align: right; }
+.movement-audit { grid-template-columns: minmax(0, 1fr) auto; align-items: center; text-align: right; }
+.movement-audit > span { display: grid; gap: .12rem; min-width: 0; }
 
 .confirm-card { text-align: center; }
 .confirm-icon { width: 56px; height: 56px; display: grid; place-items: center; margin: 0 auto; color: #c4320a; background: #fff0e8; border-radius: 18px; }
