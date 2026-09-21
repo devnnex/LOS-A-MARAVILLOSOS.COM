@@ -4720,8 +4720,48 @@ const App = (() => {
   }[method] || "Otro");
 
   const incomeRecordDateKey = (value) => {
+    const text = String(value || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? String(value || "").slice(0, 10) : dateInputValue(date);
+    if (Number.isNaN(date.getTime())) return text.slice(0, 10);
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Bogota",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date).reduce((result, part) => {
+      result[part.type] = part.value;
+      return result;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+
+  const shiftedIncomeDateKey = (dateKey, days) => {
+    const date = new Date(`${dateKey}T12:00:00`);
+    date.setDate(date.getDate() + days);
+    return dateInputValue(date);
+  };
+
+  const expandedRemoteIncomeFilters = (filters) => ({
+    ...filters,
+    dateFrom: shiftedIncomeDateKey(filters.dateFrom, -1),
+    dateTo: shiftedIncomeDateKey(filters.dateTo, 1)
+  });
+
+  const restrictRemoteIncomeReportDates = (report, filters) => {
+    const records = (report.records || []).filter((record) => {
+      const dateKey = incomeRecordDateKey(record.date);
+      return dateKey >= filters.dateFrom && dateKey <= filters.dateTo;
+    });
+    return {
+      ...report,
+      filters,
+      records,
+      recordKeys: records.flatMap((record) => [record.saleId, record.sessionId]).map(String).filter(Boolean),
+      totals: incomeTotalsFromRecords(records),
+      totalRecords: records.length,
+      truncated: false
+    };
   };
 
   const incomeTotalsFromRecords = (records = []) => {
@@ -5107,7 +5147,8 @@ const App = (() => {
     setIncomeReportStatus("Actualizando informe", "loading", "loader-circle");
     try {
       if (!isAppsScriptConfigured()) throw new Error("El historial remoto no está configurado.");
-      let result = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
+      const remoteFilters = expandedRemoteIncomeFilters(filters);
+      let result = await appsScriptRequest("get_income_report", { filters: remoteFilters }, APPS_SCRIPT_TIMEOUT_MS);
       if (!result?.ok) throw new Error(result?.error || "No se pudo consultar el historial.");
       let recovered = 0;
       try {
@@ -5118,13 +5159,13 @@ const App = (() => {
       if (recovered) {
         const synced = await flushAppsScriptOutbox();
         if (synced && !readAppsScriptOutbox().length) {
-          const refreshed = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
+          const refreshed = await appsScriptRequest("get_income_report", { filters: remoteFilters }, APPS_SCRIPT_TIMEOUT_MS);
           if (refreshed?.ok) result = refreshed;
         }
       }
       if (requestId !== state.incomeRequestId) return false;
       state.incomeLoading = false;
-      state.incomeReport = mergeIncomeReport(result, filters);
+      state.incomeReport = mergeIncomeReport(restrictRemoteIncomeReportDates(result, filters), filters);
       renderIncomeReport();
       return true;
     } catch (error) {

@@ -504,8 +504,7 @@ function readSheetRows_(sheet, width) {
 function dateValueToKey_(value, timezone) {
   if (value instanceof Date && !isNaN(value.getTime())) return Utilities.formatDate(value, timezone, "yyyy-MM-dd");
   var text = String(value || "").trim();
-  var direct = text.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (direct) return direct[1];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   var parsed = new Date(text);
   return isNaN(parsed.getTime()) ? "" : Utilities.formatDate(parsed, timezone, "yyyy-MM-dd");
 }
