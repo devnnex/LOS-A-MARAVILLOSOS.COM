@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="pwa-icon.svg" id="appFavicon" type="image/svg+xml">
     <link rel="apple-touch-icon" href="pwa-icon.svg" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20260920-movement-restore-1">
+    <link rel="stylesheet" href="style.css?v=20260920-table-search-1">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -118,18 +118,24 @@
         </div>
 
         <div class="panel">
-          <div class="section-head">
+          <div class="section-head table-overview-head">
             <div>
               <span class="eyebrow">Salon</span>
               <h2>Estado de mesas</h2>
             </div>
-            <label class="table-zone-filter">Mostrar
-              <select id="dashboardTableZoneFilter" aria-label="Filtrar mesas del inicio por ubicación">
-                <option value="all">Todas</option>
-                <option value="outdoor">Afuera</option>
-                <option value="indoor">Adentro</option>
-              </select>
-            </label>
+            <div class="table-filter-tools">
+              <label class="table-quick-search" aria-label="Buscar mesa en el inicio">
+                <i data-lucide="search"></i>
+                <input id="dashboardTableSearch" type="search" autocomplete="off" spellcheck="false" placeholder="BUSCAR MESA · EJ. M1">
+              </label>
+              <label class="table-zone-filter">Mostrar
+                <select id="dashboardTableZoneFilter" aria-label="Filtrar mesas del inicio por ubicación">
+                  <option value="all">Todas</option>
+                  <option value="outdoor">Afuera</option>
+                  <option value="indoor">Adentro</option>
+                </select>
+              </label>
+            </div>
           </div>
           <div class="tables-grid" id="tablesGrid"></div>
         </div>
@@ -483,13 +489,19 @@
           <article class="service-tables-panel">
             <div class="service-table-heading">
               <div class="service-block-title"><span><i data-lucide="armchair"></i></span><div><strong>Ventas por mesa</strong><small>Verde libre, azul afuera, amarillo con cuenta abierta</small></div></div>
-              <label class="table-zone-filter">Mostrar
-                <select id="serviceTableZoneFilter" aria-label="Filtrar mesas por ubicación">
-                  <option value="all">Todas</option>
-                  <option value="outdoor">Afuera</option>
-                  <option value="indoor">Adentro</option>
-                </select>
-              </label>
+              <div class="table-filter-tools">
+                <label class="table-quick-search" aria-label="Buscar mesa para atender">
+                  <i data-lucide="search"></i>
+                  <input id="serviceTableSearch" type="search" autocomplete="off" spellcheck="false" placeholder="BUSCAR MESA · EJ. M1">
+                </label>
+                <label class="table-zone-filter">Mostrar
+                  <select id="serviceTableZoneFilter" aria-label="Filtrar mesas por ubicación">
+                    <option value="all">Todas</option>
+                    <option value="outdoor">Afuera</option>
+                    <option value="indoor">Adentro</option>
+                  </select>
+                </label>
+              </div>
             </div>
             <div class="compact-tables-grid" id="waiterTablesGrid"></div>
           </article>
@@ -813,6 +825,6 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20260920-movement-income-1"></script>
+    <script src="app.js?v=20260920-table-search-1"></script>
   </body>
 </html>

@@ -347,7 +347,9 @@ const App = (() => {
     adminSyncBusy: false,
     activeAdminSection: "dashboard",
     dashboardTableZoneFilter: "all",
+    dashboardTableSearch: "",
     serviceTableZoneFilter: "all",
+    serviceTableSearch: "",
     outdoorTableDraftIds: null,
     outdoorTableDraftDirty: false,
     sectionRenderTimer: null,
@@ -600,6 +602,23 @@ const App = (() => {
 
   const tableMatchesZone = (table, filter = "all") => filter === "all"
     || (filter === "outdoor" ? isOutdoorTable(table) : !isOutdoorTable(table));
+
+  const filterTablesBySmartSearch = (tables, searchValue = "") => {
+    const compactQuery = String(searchValue || "").trim().toUpperCase().replace(/\s+/g, "");
+    if (!compactQuery) return tables;
+    const numberQuery = compactQuery.replace(/^MESA/, "").replace(/^M/, "");
+    if (/^\d+$/.test(numberQuery)) {
+      const exact = tables.filter((table) => String(table.table_number || "") === numberQuery);
+      return exact.length ? exact : tables.filter((table) => String(table.table_number || "").startsWith(numberQuery));
+    }
+    const textQuery = normalizeText(searchValue);
+    return tables.filter((table) => normalizeText([
+      tableLabel(table),
+      table.table_number,
+      `M${table.table_number || ""}`,
+      `MESA ${table.table_number || ""}`
+    ].join(" ")).includes(textQuery));
+  };
 
   const sessionLabel = (session) => session?.sale_channel === "walk_in" || !session?.table_id
     ? "Venta individual"
@@ -3691,15 +3710,17 @@ const App = (() => {
     refreshIcons();
   };
 
-  const compactTableTiles = (zoneFilter = "all") => normalTables()
-    .filter((table) => table.is_active !== false)
-    .filter((table) => tableMatchesZone(table, zoneFilter))
-    .map((table) => {
+  const compactTableTiles = (zoneFilter = "all", searchValue = "") => {
+    const tables = normalTables()
+      .filter((table) => table.is_active !== false)
+      .filter((table) => tableMatchesZone(table, zoneFilter));
+    return filterTablesBySmartSearch(tables, searchValue).map((table) => {
       const session = state.sessions.find((entry) => entry.table_id === table.id && entry.status === "open");
       const pending = state.requests.filter((request) => request.table_id === table.id && request.status === "pending").length;
       const occupied = Boolean(session);
       return `<button class="compact-table-tile ${occupied ? "occupied" : "free"} ${isOutdoorTable(table) ? "outdoor" : "indoor"} ${pending ? "needs-attention" : ""}" type="button" data-open-table="${escapeHTML(table.id)}" title="Agregar consumo en ${escapeHTML(tableLabel(table))}"><span class="table-furniture-icon">${icon("armchair", 23)}</span><strong>M${escapeHTML(table.table_number)}</strong>${occupied ? `<small>${money(sessionTotal(session))}</small>` : "<small>Libre</small>"}${pending ? `<em>${pending}</em>` : ""}</button>`;
     }).join("");
+  };
 
   const renderTables = () => {
     const box = $("#tablesGrid");
@@ -3707,9 +3728,12 @@ const App = (() => {
     state.tableRenderSignature = tablesSignature();
     box.classList.add("compact-tables-grid");
     const filter = state.dashboardTableZoneFilter;
+    const searchValue = state.dashboardTableSearch;
     const select = $("#dashboardTableZoneFilter");
+    const search = $("#dashboardTableSearch");
     if (select) select.value = filter;
-    box.innerHTML = compactTableTiles(filter) || emptyState("Sin mesas", filter === "all" ? "Crea las mesas del negocio para comenzar." : "No hay mesas en esta ubicación.", "layout-grid");
+    if (search && search.value !== searchValue) search.value = searchValue;
+    box.innerHTML = compactTableTiles(filter, searchValue) || emptyState("Sin mesas", searchValue ? "No hay una mesa que coincida con la búsqueda." : (filter === "all" ? "Crea las mesas del negocio para comenzar." : "No hay mesas en esta ubicación."), "layout-grid");
     refreshIcons();
   };
 
@@ -3717,9 +3741,12 @@ const App = (() => {
     const box = $("#waiterTablesGrid");
     if (!box) return;
     const filter = state.serviceTableZoneFilter;
+    const searchValue = state.serviceTableSearch;
     const select = $("#serviceTableZoneFilter");
+    const search = $("#serviceTableSearch");
     if (select) select.value = filter;
-    box.innerHTML = compactTableTiles(filter) || emptyState("Sin mesas", filter === "all" ? "Crea una mesa activa para atenderla." : "No hay mesas en esta ubicación.", "armchair");
+    if (search && search.value !== searchValue) search.value = searchValue;
+    box.innerHTML = compactTableTiles(filter, searchValue) || emptyState("Sin mesas", searchValue ? "No hay una mesa que coincida con la búsqueda." : (filter === "all" ? "Crea una mesa activa para atenderla." : "No hay mesas en esta ubicación."), "armchair");
     renderServicePoints();
     refreshIcons();
   };
@@ -7696,8 +7723,20 @@ const App = (() => {
       state.dashboardTableZoneFilter = event.currentTarget.value || "all";
       renderTables();
     });
+    $("#dashboardTableSearch")?.addEventListener("input", (event) => {
+      const value = event.currentTarget.value.toUpperCase();
+      if (event.currentTarget.value !== value) event.currentTarget.value = value;
+      state.dashboardTableSearch = value;
+      renderTables();
+    });
     $("#serviceTableZoneFilter")?.addEventListener("change", (event) => {
       state.serviceTableZoneFilter = event.currentTarget.value || "all";
+      renderServiceTables();
+    });
+    $("#serviceTableSearch")?.addEventListener("input", (event) => {
+      const value = event.currentTarget.value.toUpperCase();
+      if (event.currentTarget.value !== value) event.currentTarget.value = value;
+      state.serviceTableSearch = value;
       renderServiceTables();
     });
     $("#movementSearch")?.addEventListener("input", (event) => {
