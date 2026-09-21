@@ -4809,6 +4809,118 @@ const App = (() => {
     };
   };
 
+  const incomeReportIdentityKeys = (report = {}) => new Set([
+    ...(report.recordKeys || []),
+    ...(report.records || []).flatMap((record) => [record.saleId, record.sessionId])
+  ].map(String).filter(Boolean));
+
+  const recoveredInvoiceFromClosedSession = (session) => {
+    const localInvoice = state.invoiceHistory.find((invoice) => String(invoice.sessionId || "") === String(session.id || ""));
+    if (localInvoice) return localInvoice;
+    const items = (session.session_items || [])
+      .filter((item) => item.status !== "cancelled")
+      .map((item) => ({
+        id: item.id,
+        menu_item_id: item.menu_item_id || null,
+        item_name: item.item_name || "Producto",
+        quantity: Number(item.quantity || 0),
+        unit_price: Number(item.unit_price || 0),
+        unit_cost: Number(state.inventoryMeta[item.menu_item_id]?.costPrice || 0),
+        status: item.status
+      }));
+    const tableNumber = session.restaurant_tables?.table_number;
+    const tableName = session.restaurant_tables?.table_name;
+    const table = tableName || (tableNumber ? `Mesa ${tableNumber}` : "Venta individual");
+    const createdAt = session.closed_at || session.updated_at || new Date().toISOString();
+    const method = ["cash", "transfer", "breb"].includes(String(session.payment_method || "").toLowerCase())
+      ? String(session.payment_method).toLowerCase()
+      : "other";
+    const total = Number(session.total || 0);
+    return {
+      id: String(session.id),
+      number: `REC-${String(createdAt).slice(0, 10).replaceAll("-", "")}-${tableNumber || String(session.id).slice(0, 6).toUpperCase()}`,
+      sessionId: String(session.id),
+      tableId: session.table_id || null,
+      table,
+      saleChannel: session.sale_channel || "table",
+      soldByUserId: session.assigned_waiter_id || null,
+      createdAt,
+      payerName: session.payer_name || "",
+      waiterName: state.users.find((user) => String(user.id) === String(session.assigned_waiter_id || ""))?.full_name || "",
+      paymentMethod: method,
+      payments: [{ method, amount: total }],
+      reference: "RECUPERADA DESDE MOVIMIENTOS",
+      inventoryAdjustedOnConsumption: true,
+      totals: {
+        subtotal: Number(session.subtotal || items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)),
+        discount: Number(session.discount || 0),
+        tax: Number(session.tax || 0),
+        serviceFee: Number(session.service_fee || 0),
+        total
+      },
+      items
+    };
+  };
+
+  const queueIncomeRecoveryFromMovements = async (remoteReport) => {
+    await loadInventoryMovements();
+    const deletedSessions = new Set(state.inventoryMovements
+      .filter((movement) => String(movement.type || "").toUpperCase() === "VENTA_ELIMINADA")
+      .map((movement) => String(movement.sessionId || ""))
+      .filter(Boolean));
+    const sessionIds = new Set(state.inventoryMovements
+      .map((movement) => String(movement.sessionId || ""))
+      .filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) && !deletedSessions.has(id)));
+    state.invoiceHistory.forEach((invoice) => {
+      const id = String(invoice.sessionId || "");
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) && !deletedSessions.has(id)) sessionIds.add(id);
+    });
+    if (!sessionIds.size) return 0;
+
+    const closedSessions = [];
+    const ids = Array.from(sessionIds).slice(-500);
+    for (let index = 0; index < ids.length; index += 50) {
+      const { data, error } = await state.sb
+        .from("table_sessions")
+        .select("*, restaurant_tables(table_number, table_name), session_items(*)")
+        .eq("status", "closed")
+        .gt("total", 0)
+        .in("id", ids.slice(index, index + 50));
+      if (error) throw error;
+      closedSessions.push(...(data || []));
+    }
+
+    const remoteKeys = incomeReportIdentityKeys(remoteReport);
+    const jobs = readAppsScriptOutbox();
+    let queued = 0;
+    closedSessions.forEach((session) => {
+      if (remoteKeys.has(String(session.id))) return;
+      const invoice = recoveredInvoiceFromClosedSession(session);
+      const saleId = String(invoice.id || invoice.sessionId || "");
+      if (!saleId || remoteKeys.has(saleId)) return;
+      const alreadyQueued = jobs.some((job) => job.action === "record_sale"
+        && String(job.payload?.invoice?.sessionId || "") === String(invoice.sessionId));
+      if (alreadyQueued) return;
+      if (!state.invoiceHistory.some((entry) => String(entry.sessionId || "") === String(invoice.sessionId))) {
+        state.invoiceHistory.push(invoice);
+      }
+      jobs.push({
+        id: uid(),
+        action: "record_sale",
+        payload: { invoice },
+        dedupeKey: `sale:${invoice.sessionId}`,
+        attempts: 0,
+        createdAt: new Date().toISOString()
+      });
+      queued += 1;
+    });
+    if (queued) {
+      persistInvoiceHistory();
+      writeAppsScriptOutbox(jobs);
+    }
+    return queued;
+  };
+
   const mergeIncomeReport = (remote, filters) => {
     const remoteKeys = new Set(remote.recordKeys || (remote.records || []).map((record) => record.saleId));
     const pendingSaleIds = new Set(readAppsScriptOutbox()
@@ -4995,8 +5107,21 @@ const App = (() => {
     setIncomeReportStatus("Actualizando informe", "loading", "loader-circle");
     try {
       if (!isAppsScriptConfigured()) throw new Error("El historial remoto no está configurado.");
-      const result = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
+      let result = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
       if (!result?.ok) throw new Error(result?.error || "No se pudo consultar el historial.");
+      let recovered = 0;
+      try {
+        recovered = await queueIncomeRecoveryFromMovements(result);
+      } catch (recoveryError) {
+        console.warn("No se pudo conciliar ingresos cerrados desde movimientos.", recoveryError);
+      }
+      if (recovered) {
+        const synced = await flushAppsScriptOutbox();
+        if (synced && !readAppsScriptOutbox().length) {
+          const refreshed = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
+          if (refreshed?.ok) result = refreshed;
+        }
+      }
       if (requestId !== state.incomeRequestId) return false;
       state.incomeLoading = false;
       state.incomeReport = mergeIncomeReport(result, filters);
@@ -6116,7 +6241,7 @@ const App = (() => {
     toast(`Cuenta movida a ${tableLabel(table)}.`, "ok", `moved-table:${sessionId}`);
   };
 
-  const closeSession = async (id) => {
+  const closeSession = async (id, paymentMethod = "") => {
     const session = state.sessions.find((entry) => entry.id === id);
     if (!session) return null;
     const totals = sessionTotals(session);
@@ -6131,7 +6256,8 @@ const App = (() => {
         discount: totals.discount,
         tax: totals.tax,
         service_fee: totals.serviceFee,
-        total: totals.total
+        total: totals.total,
+        payment_method: paymentMethod || null
       };
       state.sessions = state.sessions.filter((entry) => entry.id !== id);
       state.optimisticSessionStates.delete(id);
@@ -6154,7 +6280,8 @@ const App = (() => {
         discount: totals.discount,
         tax: totals.tax,
         service_fee: totals.serviceFee,
-        total: totals.total
+        total: totals.total,
+        payment_method: paymentMethod || null
       }).eq("id", id).eq("status", "open").select("*").single(),
       4
     );
@@ -6587,7 +6714,7 @@ const App = (() => {
       state.paymentProcessing = false;
       return;
     }
-    const closed = await closeSession(session.id);
+    const closed = await closeSession(session.id, payment.method);
     buttons.forEach((button) => { button.disabled = false; });
     if (!closed) {
       receiptWindow?.close();
