@@ -53,33 +53,187 @@ body {
 body.is-loading { cursor: progress; }
 
 .admin-login {
+  --login-pink: #ff2bbd;
   position: fixed;
   inset: 0;
   z-index: 200;
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: #f3f6fa;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #050505;
+}
+
+.admin-login::before {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  background: #050505 url("images/los-anos-login.png") center / cover no-repeat;
+  filter: brightness(.32) contrast(1.08);
+  opacity: .52;
+}
+
+.admin-login::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, .28), rgba(0, 0, 0, .9));
 }
 
 body.admin-authenticated .admin-login { display: none; }
 
 .admin-login-card {
+  position: relative;
   width: min(420px, 100%);
   display: grid;
   gap: .9rem;
   padding: 1.5rem;
   border-radius: 22px;
-  background: #fff;
-  border: 1px solid rgba(18, 24, 31, .1);
-  box-shadow: 0 28px 80px rgba(22, 28, 36, .14);
+  color: #fff;
+  background: rgba(5, 5, 5, .88);
+  border: 1px solid rgba(255, 43, 189, .72);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .66), 0 0 24px rgba(255, 43, 189, .13);
+  backdrop-filter: blur(12px);
 }
 
-.admin-login-card > svg { color: var(--accent); }
+.admin-login-logo {
+  position: absolute;
+  top: 1.05rem;
+  right: 1.05rem;
+  width: 76px;
+  height: 76px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 43, 189, .78);
+  border-radius: 50%;
+  clip-path: circle(50% at 50% 50%);
+  filter: drop-shadow(0 0 10px rgba(255, 43, 189, .38));
+}
+
+.admin-login-card > svg { color: var(--login-pink); }
 .admin-login-card h1, .admin-login-card p { margin: 0; }
-.admin-login-card small { min-height: 1.2em; color: var(--red); }
+.admin-login-card p, .admin-login-card .eyebrow { color: rgba(255, 255, 255, .76); }
+.admin-login-card label { color: #fff; }
+.admin-login-card input { color: #fff; caret-color: var(--login-pink); border-color: rgba(255, 43, 189, .64); background: #050505; }
+.admin-login-card input::placeholder { color: rgba(255, 255, 255, .52); }
+.admin-login-card input:-webkit-autofill,
+.admin-login-card input:-webkit-autofill:hover,
+.admin-login-card input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #fff;
+  -webkit-box-shadow: 0 0 0 1000px #050505 inset;
+  caret-color: #fff;
+}
+.admin-login-card input:focus { border-color: var(--login-pink); box-shadow: 0 0 0 3px rgba(255, 43, 189, .2); }
+.admin-login-card small { min-height: 1.2em; color: #ffabdF; }
 .admin-login-card > div { display: grid; gap: .75rem; }
 .admin-login-card > div[hidden] { display: none !important; }
+
+.admin-login-card .primary {
+  --login-blue: #00a6ff;
+  --neon-color: var(--login-blue);
+  --login-neon-angle: 0deg;
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+  color: #fff;
+  border: 0;
+  background: #050505;
+  box-shadow: none;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  text-shadow: 0 0 7px rgba(0, 166, 255, .72);
+  transition: color .32s ease, background-color .32s ease, box-shadow .32s ease, transform .16s ease;
+}
+
+.admin-login-card .primary::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: -1px;
+  padding: 1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--login-neon-angle),
+    transparent 0 70%,
+    color-mix(in srgb, var(--neon-color) 8%, transparent) 76%,
+    color-mix(in srgb, var(--neon-color) 42%, transparent) 83%,
+    var(--neon-color) 88%,
+    color-mix(in srgb, var(--neon-color) 50%, transparent) 92%,
+    transparent 98% 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 3px rgba(0, 166, 255, .76));
+  pointer-events: none;
+  animation: loginNeonCircuit 2.8s linear infinite;
+}
+
+.admin-login-card .primary::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 12%;
+  right: 12%;
+  top: calc(100% + 9px);
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(0, 166, 255, .42), transparent 70%);
+  filter: blur(8px);
+  opacity: .2;
+  transform: scaleX(.68);
+  transition: opacity .32s ease, transform .32s ease, filter .32s ease;
+  pointer-events: none;
+}
+
+.admin-login-card .primary:hover,
+.admin-login-card .primary:focus-visible {
+  color: #fff;
+  background: var(--login-blue);
+  text-shadow: none;
+  box-shadow:
+    0 0 5px rgba(0, 166, 255, .98),
+    0 0 16px rgba(0, 166, 255, .82),
+    0 0 38px rgba(0, 166, 255, .52),
+    0 0 72px rgba(0, 166, 255, .28);
+}
+
+.admin-login-card .primary:hover::before,
+.admin-login-card .primary:focus-visible::before { filter: drop-shadow(0 0 5px rgba(0, 166, 255, .9)); }
+
+.admin-login-card .primary:hover::after,
+.admin-login-card .primary:focus-visible::after {
+  opacity: .72;
+  filter: blur(10px);
+  transform: scaleX(1.06);
+}
+
+.admin-login-card .primary:focus-visible { outline: 2px solid var(--login-blue); outline-offset: 5px; }
+.admin-login-card .primary:active { transform: scale(.98); }
+
+@property --login-neon-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes loginNeonCircuit { to { --login-neon-angle: 360deg; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-login-card .primary::before { animation: none; }
+  .admin-login-card .primary,
+  .admin-login-card .primary::after { transition-duration: .01ms; }
+}
+
+@media (max-width: 480px) {
+  .admin-login::before { background-position: center; background-size: cover; opacity: .58; }
+  .admin-login-logo { width: 64px; height: 64px; }
+}
 
 .operator-box {
   display: grid;
@@ -3856,6 +4010,58 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
   background: rgba(47, 209, 124, .035);
 }
 
+.admin-sidebar nav a:nth-child(-n + 4).active { --section-neon-color: #f05a28; }
+.admin-sidebar nav a:nth-child(n + 5).active { --section-neon-color: var(--green); }
+
+.admin-sidebar nav a.active {
+  --section-neon-angle: 0deg;
+  position: relative;
+  isolation: isolate;
+  color: #fff;
+  background: color-mix(in srgb, var(--section-neon-color) 13%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--section-neon-color) 38%, transparent),
+    0 0 10px color-mix(in srgb, var(--section-neon-color) 8%, transparent);
+}
+
+.admin-sidebar nav a.active::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--section-neon-angle),
+    transparent 0 72%,
+    color-mix(in srgb, var(--section-neon-color) 15%, transparent) 78%,
+    color-mix(in srgb, var(--section-neon-color) 70%, white) 86%,
+    var(--section-neon-color) 90%,
+    color-mix(in srgb, var(--section-neon-color) 45%, transparent) 94%,
+    transparent 99% 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--section-neon-color) 72%, transparent));
+  pointer-events: none;
+  will-change: background;
+  animation: sectionNeonCircuit 3.2s linear infinite;
+}
+
+@property --section-neon-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes sectionNeonCircuit { to { --section-neon-angle: 360deg; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidebar nav a.active::after { animation: none; }
+}
+
 .admin-sidebar nav a:nth-child(4) { margin-bottom: .48rem; }
 .admin-sidebar nav a:nth-child(5) { position: relative; margin-top: .48rem; }
 .admin-sidebar nav a:nth-child(5)::before {
@@ -3913,10 +4119,13 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 .consumption-selection-head span { color: #667085; font-size: .74rem; font-weight: 750; }
 .consumption-selection-lines { display: grid; gap: .38rem; max-height: 190px; overflow-y: auto; }
 .consumption-selection-lines > div { display: grid; grid-template-columns: minmax(0, 1fr) auto 34px; align-items: center; gap: .6rem; padding: .5rem .55rem; border-radius: 10px; background: #fff; }
+.consumption-selection-lines > div.is-editing { box-shadow: inset 0 0 0 2px rgba(181, 71, 8, .22); }
 .consumption-selection-lines span { min-width: 0; display: grid; }
 .consumption-selection-lines small { color: #667085; font-size: .7rem; }
 .consumption-selection-lines strong { overflow-wrap: anywhere; }
 .consumption-selection-total { padding-top: .55rem; border-top: 1px dashed rgba(18, 24, 31, .16); color: #17643e; font-weight: 850; }
+.consumption-draft-product { cursor: pointer; }
+.consumption-draft-product:hover strong { color: #b54708; text-decoration: underline dotted; text-underline-offset: 3px; }
 .consumption-draft-price { cursor: text; }
 .consumption-draft-price:hover { color: #b54708; text-decoration: underline dotted; text-underline-offset: 3px; }
 .consumption-draft-price-editor { width: min(118px, 100%); min-height: 34px; padding: .35rem .45rem; border: 1px solid rgba(181, 71, 8, .45); border-radius: 8px; color: #17191f; background: #fffaf5; font: inherit; font-weight: 800; text-align: right; outline: none; }
@@ -4500,7 +4709,9 @@ body[data-page="admin"] { overflow-x: hidden; }
 .admin-sidebar { gap: .72rem; padding-bottom: .7rem; }
 .admin-sidebar nav {
   min-height: 0;
+  overflow-x: clip;
   overflow-y: auto;
+  contain: paint;
   scrollbar-width: thin;
   scrollbar-color: #f47745 rgba(255, 255, 255, .08);
 }

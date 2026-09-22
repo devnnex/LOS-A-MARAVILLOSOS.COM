@@ -319,6 +319,7 @@ const App = (() => {
     incomeLastRequestAt: 0,
     productPickerMatches: [],
     consumptionDrafts: [],
+    consumptionDraftEditIndex: -1,
     activePaymentTotal: 0,
     activePaymentBase: 0,
     activePaymentTip: 0,
@@ -362,6 +363,11 @@ const App = (() => {
     outdoorTableDraftIds: null,
     outdoorTableDraftDirty: false,
     sectionRenderTimer: null,
+    sectionRenderFrame: 0,
+    sectionSwitchToken: 0,
+    tableManagerRenderSignature: "",
+    usersRenderSignature: "",
+    adminAiRenderSignature: "",
     coreRefreshBusy: false,
     pwaBrandSignature: "",
     pwaBrandSyncToken: 0,
@@ -720,7 +726,10 @@ const App = (() => {
     });
     $$(".admin-sidebar nav a").forEach((link) => {
       const target = link.getAttribute("href")?.replace("#", "");
-      link.classList.toggle("active", target === section);
+      const active = target === section;
+      link.classList.toggle("active", active);
+      if (active) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
     });
     if (section === "movements" && navigator.onLine && isAppsScriptConfigured()) {
       const list = $("#inventoryMovementList");
@@ -729,33 +738,37 @@ const App = (() => {
       if (summary) summary.innerHTML = "";
       refreshIcons();
     }
-    clearTimeout(state.sectionRenderTimer);
-    state.sectionRenderTimer = window.setTimeout(() => {
-      if (state.activeAdminSection !== section) return;
-      if (section === "dashboard") {
-        renderAlerts();
-        renderTables();
-      }
-      if (section === "accounts") renderAccounts();
-      if (section === "tips") renderTips();
-      if (section === "service") renderServiceTables();
-      if (section === "menu") {
-        renderTableManager();
-        renderTableFormQr();
-      }
-      if (section === "inventory") renderInventory();
-      if (section === "movements") {
-        if (!navigator.onLine || !isAppsScriptConfigured()) renderInventoryMovements();
-        void loadInventoryMovements();
-      }
-      if (section === "income") {
-        initializeIncomeFilters();
-        if (!state.incomeLoading || state.incomeRequestKey !== JSON.stringify(incomeFiltersFromForm())) void loadIncomeReport();
-      }
-      if (section === "users") renderUsers();
-      if (section === "assistant") renderAdminAi();
-      refreshIcons();
-    }, 60);
+    const switchToken = ++state.sectionSwitchToken;
+    window.cancelAnimationFrame(state.sectionRenderFrame);
+    window.clearTimeout(state.sectionRenderTimer);
+    state.sectionRenderFrame = window.requestAnimationFrame(() => {
+      if (state.activeAdminSection !== section || switchToken !== state.sectionSwitchToken) return;
+      state.sectionRenderTimer = window.setTimeout(() => {
+        if (state.activeAdminSection !== section || switchToken !== state.sectionSwitchToken) return;
+        if (section === "dashboard") {
+          renderAlerts();
+          renderTables();
+        }
+        if (section === "accounts") renderAccounts();
+        if (section === "tips") renderTips();
+        if (section === "service") renderServiceTables();
+        if (section === "menu") {
+          renderTableManager();
+          renderTableFormQr();
+        }
+        if (section === "inventory") renderInventory();
+        if (section === "movements") {
+          if (!navigator.onLine || !isAppsScriptConfigured()) renderInventoryMovements();
+          void loadInventoryMovements();
+        }
+        if (section === "income") {
+          initializeIncomeFilters();
+          if (!state.incomeLoading || state.incomeRequestKey !== JSON.stringify(incomeFiltersFromForm())) void loadIncomeReport();
+        }
+        if (section === "users") renderUsers();
+        if (section === "assistant") renderAdminAi();
+      }, 0);
+    });
   };
 
   const findTableFromUrl = () => {
@@ -1052,9 +1065,9 @@ const App = (() => {
     canvas.height = size;
     const context = canvas.getContext("2d");
     if (!context) throw new Error("El navegador no puede generar el icono de instalación.");
-    context.fillStyle = "#ffffff";
+    context.fillStyle = "#000000";
     context.fillRect(0, 0, size, size);
-    const safeArea = size * .76;
+    const safeArea = size;
     const scale = Math.min(safeArea / image.naturalWidth, safeArea / image.naturalHeight);
     const width = image.naturalWidth * scale;
     const height = image.naturalHeight * scale;
@@ -1074,7 +1087,7 @@ const App = (() => {
   const syncPwaBranding = async () => {
     if (!state.business) return;
     const name = String(state.business.business_name || "Tienda Nápoles").trim() || "Tienda Nápoles";
-    const logoUrl = String(state.business.logo_url || "").trim();
+    const logoUrl = pwaAssetUrl("images/los-anos-login.png");
     const themeColor = String(state.business.accent_color || "#f05a28");
     const signature = `${name}|${logoUrl}|${themeColor}`;
     if (signature === state.pwaBrandSignature) return;
@@ -1099,8 +1112,8 @@ const App = (() => {
     if (syncToken !== state.pwaBrandSyncToken) return;
 
     let iconEntries = [
-      { src: "./pwa-icon.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
-      { src: "./pwa-icon.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+      { src: "./images/los-anos-pwa-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "./images/los-anos-pwa-512.png", sizes: "512x512", type: "image/png", purpose: "any" }
     ];
     if (icon192 && icon512) {
       const faviconUrl = URL.createObjectURL(icon192);
@@ -1119,13 +1132,13 @@ const App = (() => {
         ]);
       }
       iconEntries = [
-        { src: `./pwa-icon-192.png?v=${version}`, sizes: "192x192", type: "image/png", purpose: "any maskable" },
-        { src: `./pwa-icon-512.png?v=${version}`, sizes: "512x512", type: "image/png", purpose: "any maskable" }
+        { src: `./pwa-icon-192.png?v=${version}`, sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: `./pwa-icon-512.png?v=${version}`, sizes: "512x512", type: "image/png", purpose: "any" }
       ];
     } else if (logoUrl) {
       if ($("#appFavicon")) $("#appFavicon").href = logoUrl;
       if ($("#appleTouchIcon")) $("#appleTouchIcon").href = logoUrl;
-      iconEntries = [{ src: logoUrl, sizes: "any", purpose: "any maskable" }];
+      iconEntries = [{ src: logoUrl, sizes: "any", type: "image/png", purpose: "any" }];
     }
 
     const manifest = {
@@ -3925,6 +3938,13 @@ const App = (() => {
       [...state.selectedTableQrIds].filter((id) => validIds.has(String(id)))
     );
     const query = normalizeText($("#tableManagerSearch")?.value || "");
+    const renderSignature = JSON.stringify({
+      query,
+      selected: [...state.selectedTableQrIds].sort(),
+      tables: qrTables.map((table) => [table.id, table.table_number, table.table_name, table.is_active, table.qr_code, table.qr_image_url])
+    });
+    if (renderSignature === state.tableManagerRenderSignature) return;
+    state.tableManagerRenderSignature = renderSignature;
     const visibleTables = qrTables.filter((table) => !query || normalizeText(`${table.table_number} ${table.table_name || ""}`).includes(query));
     list.innerHTML = visibleTables.length
       ? visibleTables
@@ -4362,8 +4382,8 @@ const App = (() => {
     const summary = inventorySummary();
     metrics.innerHTML = `
       <article><span>${icon("package-check", 19)} Unidades</span><strong>${summary.units.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong><small>Existencia total registrada</small></article>
-      <article><span>${icon("circle-dollar-sign", 19)} Inversion</span><strong>${money(summary.costValue)}</strong><small>Valor a costo</small></article>
-      <article><span>${icon("trending-up", 19)} Venta potencial</span><strong>${money(summary.saleValue)}</strong><small>Antes de gastos</small></article>
+      <article><span>${icon("circle-dollar-sign", 19)} Inversion</span><strong>${money(summary.costValue)}</strong><small>Inventario registrado</small></article>
+      <article><span>${icon("trending-up", 19)} Venta potencial</span><strong>${money(summary.saleValue)}</strong><small>Estimado al vender todo</small></article>
       <article class="${summary.low || summary.out ? "inventory-alert-metric" : ""}"><span>${icon("triangle-alert", 19)} Alertas</span><strong>${summary.low + summary.out}</strong><small>${summary.out} agotados · ${summary.low} por reponer</small></article>`;
 
     renderInventoryCategoryFilter();
@@ -5041,6 +5061,9 @@ const App = (() => {
     const chat = $("#adminAiChat");
     const suggestions = $("#adminAiSuggestions");
     if (!chat || !suggestions) return;
+    const renderSignature = JSON.stringify(state.adminAiMessages);
+    if (renderSignature === state.adminAiRenderSignature) return;
+    state.adminAiRenderSignature = renderSignature;
     suggestions.innerHTML = ["¿Cuanto se vendio hoy?", "¿Que producto se vendio mas?", "¿Quien realizo las ventas?", "¿Que productos tienen stock bajo?"]
       .map((question) => `<button class="chip" type="button" data-admin-ai-question="${escapeHTML(question)}">${escapeHTML(question)}</button>`).join("");
     const messages = state.adminAiMessages.length ? state.adminAiMessages : [{ role: "bot", text: "Puedo cruzar el informe de ingresos, el inventario y los movimientos visibles. Preguntame por productos, cantidades, responsables, ventas o existencias." }];
@@ -6972,15 +6995,49 @@ const App = (() => {
     count.textContent = `${drafts.length} ${drafts.length === 1 ? "producto" : "productos"}`;
     total.textContent = money(drafts.reduce((sum, draft) => sum + draft.quantity * draft.unitPrice, 0));
     if (priceWarning) priceWarning.hidden = !hasEditedPrice;
-    lines.innerHTML = drafts.map((draft, index) => `<div><span><strong>${escapeHTML(draft.itemName)}</strong><small>${draft.quantity} × ${money(draft.unitPrice)}</small></span><strong${canEditPrice ? ` class="consumption-draft-price" data-edit-consumption-draft="${index}" title="Doble clic para editar el precio unitario"` : ""}>${money(draft.quantity * draft.unitPrice)}</strong><button class="icon-btn danger" type="button" data-remove-consumption-draft="${index}" aria-label="Quitar ${escapeHTML(draft.itemName)}">${icon("x", 15)}</button></div>`).join("");
+    lines.innerHTML = drafts.map((draft, index) => `<div class="${state.consumptionDraftEditIndex === index ? "is-editing" : ""}"><span class="consumption-draft-product" data-edit-consumption-product="${index}" title="Doble clic para cambiar este producto"><strong>${escapeHTML(draft.itemName)}</strong><small>${draft.quantity} × ${money(draft.unitPrice)}</small></span><strong${canEditPrice ? ` class="consumption-draft-price" data-edit-consumption-price="${index}" title="Doble clic para editar el precio unitario"` : ""}>${money(draft.quantity * draft.unitPrice)}</strong><button class="icon-btn danger" type="button" data-remove-consumption-draft="${index}" aria-label="Quitar ${escapeHTML(draft.itemName)}">${icon("x", 15)}</button></div>`).join("");
     const form = $("#consumptionForm");
     if (form) form.quantity.required = drafts.length === 0;
+    updateConsumptionDraftAction();
     refreshIcons();
+  };
+
+  const updateConsumptionDraftAction = () => {
+    const queue = $("#consumptionQueueButton");
+    if (!queue) return;
+    queue.innerHTML = state.consumptionDraftEditIndex >= 0
+      ? `${icon("save", 16)} Guardar cambio`
+      : `${icon("list-plus", 16)} Añadir a selección`;
+    refreshIcons();
+  };
+
+  const editConsumptionDraftProduct = (index) => {
+    const draft = state.consumptionDrafts[index];
+    const form = $("#consumptionForm");
+    const search = $("#consumptionProductSearch");
+    if (!draft || !form || !search) return;
+    state.consumptionDraftEditIndex = index;
+    form.menu_item_id.value = draft.menuItemId || "";
+    form.item_name.value = draft.itemName || "";
+    form.quantity.value = draft.quantity || 1;
+    form.notes.value = draft.notes || "";
+    form.payer_name.value = draft.payerName || form.payer_name.value;
+    setCurrencyInputValue(form.unit_price, draft.unitPrice || 0);
+    const product = state.items.find((item) => item.id === draft.menuItemId);
+    search.value = product ? `${inventoryFor(product).code} · ${product.name}` : draft.itemName || "";
+    renderConsumptionProductOptions(product?.name || draft.itemName || "");
+    closeConsumptionProductOptions();
+    updateConsumptionDraftAction();
+    renderConsumptionSelection();
+    window.requestAnimationFrame(() => {
+      search.focus({ preventScroll: true });
+      search.select();
+    });
   };
 
   const editConsumptionDraftPrice = (priceElement) => {
     if (state.currentUser?.role === "waiter") return;
-    const index = Number(priceElement?.dataset.editConsumptionDraft);
+    const index = Number(priceElement?.dataset.editConsumptionPrice);
     const draft = state.consumptionDrafts[index];
     if (!Number.isInteger(index) || !draft) return;
     const input = document.createElement("input");
@@ -6995,6 +7052,10 @@ const App = (() => {
       if (saved) return;
       saved = true;
       draft.unitPrice = currencyInputNumber(input);
+      if (state.consumptionDraftEditIndex === index) {
+        const form = $("#consumptionForm");
+        if (form?.unit_price) setCurrencyInputValue(form.unit_price, draft.unitPrice);
+      }
       renderConsumptionSelection();
     };
     input.addEventListener("input", () => {
@@ -7049,6 +7110,8 @@ const App = (() => {
     if ($("#consumptionProductSearch")) $("#consumptionProductSearch").value = "";
     renderConsumptionProductOptions("");
     closeConsumptionProductOptions();
+    state.consumptionDraftEditIndex = -1;
+    updateConsumptionDraftAction();
   };
 
   const queueConsumptionDraft = () => {
@@ -7056,7 +7119,11 @@ const App = (() => {
     if (!form || form.session_item_id.value) return false;
     const draft = currentConsumptionDraft(form);
     if (!draft) return false;
-    state.consumptionDrafts.push(draft);
+    if (state.consumptionDraftEditIndex >= 0 && state.consumptionDrafts[state.consumptionDraftEditIndex]) {
+      state.consumptionDrafts[state.consumptionDraftEditIndex] = draft;
+    } else {
+      state.consumptionDrafts.push(draft);
+    }
     clearConsumptionEntry(form);
     renderConsumptionSelection();
     window.requestAnimationFrame(() => $("#consumptionProductSearch")?.focus({ preventScroll: true }));
@@ -7309,7 +7376,14 @@ const App = (() => {
       currentConsumptionDraft(form);
       return null;
     }
-    if (pendingEntry) state.consumptionDrafts.push(pendingEntry);
+    if (pendingEntry) {
+      if (state.consumptionDraftEditIndex >= 0 && state.consumptionDrafts[state.consumptionDraftEditIndex]) {
+        state.consumptionDrafts[state.consumptionDraftEditIndex] = pendingEntry;
+      } else {
+        state.consumptionDrafts.push(pendingEntry);
+      }
+      state.consumptionDraftEditIndex = -1;
+    }
     if (!state.consumptionDrafts.length) {
       toast("Añade al menos un producto a la selección.", "error", "empty-consumption-selection");
       return null;
@@ -7328,10 +7402,10 @@ const App = (() => {
       state.consumptionDrafts = drafts;
       clearConsumptionEntry(form);
       renderConsumptionSelection();
-      $("#consumptionDialog")?.showModal();
       return null;
     }
     state.consumptionDrafts = [];
+    state.consumptionDraftEditIndex = -1;
     renderConsumptionSelection();
     const sessionId = result.sessionId;
     $("#consumptionDialog")?.close();
@@ -7352,6 +7426,7 @@ const App = (() => {
     form.quantity.required = true;
     applyConsumptionRoleRestrictions(form);
     state.consumptionDrafts = [];
+    state.consumptionDraftEditIndex = -1;
     const session = state.sessions.find((entry) => entry.id === sessionId);
     form.payer_name.value = session?.payer_name || "";
     form.quantity.value = "";
@@ -7381,6 +7456,7 @@ const App = (() => {
     const session = state.sessions.find((entry) => entry.id === form.session_id.value);
     const quickCheckout = form.quick_checkout.value === "1";
     state.consumptionDrafts = [];
+    state.consumptionDraftEditIndex = -1;
     renderConsumptionSelection();
     $("#consumptionDialog")?.close();
     if (!quickCheckout || !isLocalWalkInSession(session)) return;
@@ -7406,6 +7482,7 @@ const App = (() => {
     form.quantity.required = true;
     applyConsumptionRoleRestrictions(form);
     state.consumptionDrafts = [];
+    state.consumptionDraftEditIndex = -1;
     renderConsumptionSelection();
     if ($("#tableSessionActions")) $("#tableSessionActions").hidden = true;
     if ($("#tableConsumptionPreview")) $("#tableConsumptionPreview").hidden = true;
@@ -8068,8 +8145,13 @@ const App = (() => {
     });
     $("#consumptionQueueButton")?.addEventListener("click", queueConsumptionDraft);
     $("#consumptionSelectionLines")?.addEventListener("dblclick", (event) => {
-      const price = event.target.closest("[data-edit-consumption-draft]");
-      if (price) editConsumptionDraftPrice(price);
+      const price = event.target.closest("[data-edit-consumption-price]");
+      if (price) {
+        editConsumptionDraftPrice(price);
+        return;
+      }
+      const product = event.target.closest("[data-edit-consumption-product]");
+      if (product) editConsumptionDraftProduct(Number(product.dataset.editConsumptionProduct));
     });
     $("#paymentForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -8389,7 +8471,10 @@ const App = (() => {
         return;
       }
       if (target.dataset.removeConsumptionDraft !== undefined) {
-        state.consumptionDrafts.splice(Number(target.dataset.removeConsumptionDraft), 1);
+        const removedIndex = Number(target.dataset.removeConsumptionDraft);
+        state.consumptionDrafts.splice(removedIndex, 1);
+        if (state.consumptionDraftEditIndex === removedIndex) clearConsumptionEntry($("#consumptionForm"));
+        else if (state.consumptionDraftEditIndex > removedIndex) state.consumptionDraftEditIndex -= 1;
         renderConsumptionSelection();
       }
       if (target.dataset.minimizeAdminChat) setAdminChatMinimized(target.dataset.minimizeAdminChat, !state.adminChats.get(String(target.dataset.minimizeAdminChat))?.minimized);
@@ -8410,6 +8495,7 @@ const App = (() => {
       if (target.id === "releaseEmptyTable") {
         const sessionId = $("#consumptionForm")?.session_id.value || "";
         state.consumptionDrafts = [];
+        state.consumptionDraftEditIndex = -1;
         $("#consumptionDialog")?.close();
         const released = await closeSession(sessionId);
         if (released) toast("Mesa liberada y disponible nuevamente.", "ok", `released-empty-table:${sessionId}`);
@@ -9034,6 +9120,9 @@ const App = (() => {
   const renderUsers = () => {
     const list = $("#usersList");
     if (!list) return;
+    const renderSignature = JSON.stringify(state.users.map((user) => [user.id, user.full_name, user.username, user.role, user.is_active]));
+    if (renderSignature === state.usersRenderSignature) return;
+    state.usersRenderSignature = renderSignature;
     const badge = $("#usersCountBadge");
     if (badge) badge.innerHTML = `${icon("users-round", 16)} ${state.users.length} ${state.users.length === 1 ? "usuario" : "usuarios"}`;
     list.innerHTML = state.users.length
@@ -9240,7 +9329,7 @@ const App = (() => {
     await loadBootstrap();
     await ensurePresetCategories();
     renderAdmin();
-    showAdminSection(initialSection);
+    showAdminSection(state.activeAdminSection || initialSection);
     renderTableFormQr();
     initRemoteStorage();
     window.addEventListener("online", flushAppsScriptOutbox);

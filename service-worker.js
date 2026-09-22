@@ -20,6 +20,9 @@ self.addEventListener("fetch", (event) => {
     const cache = await caches.open(PWA_BRAND_CACHE);
     const cached = await cache.match(event.request, { ignoreSearch: true });
     if (cached) return cached;
-    return fetch(assetName === "pwa-manifest.webmanifest" ? "./manifest.webmanifest" : "./pwa-icon.svg");
+    if (assetName === "pwa-manifest.webmanifest") return fetch("./manifest.webmanifest");
+    return fetch(assetName === "pwa-icon-192.png"
+      ? "./images/los-anos-pwa-192.png"
+      : "./images/los-anos-pwa-512.png");
   })());
 });
