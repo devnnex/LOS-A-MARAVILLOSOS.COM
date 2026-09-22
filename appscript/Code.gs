@@ -151,7 +151,7 @@ function apiRequest(payloadText) {
     if (request.action === "get_inventory") result = getInventory_();
     else if (request.action === "get_inventory_movements") {
       requireAdmin_(user);
-      result = getInventoryMovements_(payload.limit);
+      result = getInventoryMovements_(payload.limit, payload.beforeRow);
     }
     else if (request.action === "get_income_report") {
       requireAdmin_(user);
@@ -215,15 +215,14 @@ function apiRequest(payloadText) {
 }
 
 function ensureSystemReady_() {
-  var spreadsheet = getSpreadsheet_();
   var properties = PropertiesService.getScriptProperties();
   if (properties.getProperty(APP.properties.schemaVersion) !== APP.version) {
+    var spreadsheet = getSpreadsheet_();
     spreadsheet.setSpreadsheetTimeZone(getTimezone_());
     ensureAllSheets_(spreadsheet);
     seedConfiguration_(spreadsheet);
     properties.setProperty(APP.properties.schemaVersion, APP.version);
   }
-  return spreadsheet;
 }
 
 function bootstrapConnection_(payload, origin, authToken) {
@@ -354,12 +353,19 @@ function inventoryMovementRowToObject_(row) {
   };
 }
 
-function getInventoryMovements_(requestedLimit) {
+function getInventoryMovements_(requestedLimit, requestedBeforeRow) {
   var sheet = getSpreadsheet_().getSheetByName(APP.sheets.movements);
-  var rows = readSheetRows_(sheet, HEADERS.movements.length);
   var limit = Math.min(2000, Math.max(50, asNumber_(requestedLimit) || 800));
+  var lastRow = sheet.getLastRow();
+  var beforeRow = Math.floor(asNumber_(requestedBeforeRow));
+  var endRow = beforeRow >= 2 ? Math.min(beforeRow, lastRow) : lastRow;
+  var count = Math.min(limit, Math.max(0, endRow - 1));
+  var startRow = endRow - count + 1;
+  var rows = count ? sheet.getRange(startRow, 1, count, HEADERS.movements.length).getValues() : [];
   return {
-    movements: rows.slice(-limit).map(inventoryMovementRowToObject_)
+    movements: rows.map(inventoryMovementRowToObject_),
+    nextBeforeRow: startRow > 2 ? startRow - 1 : null,
+    hasMore: startRow > 2
   };
 }
 
@@ -376,15 +382,21 @@ function getIncomeReport_(filters) {
   }
   var methodFilter = String(filters.paymentMethod || "all").toLowerCase();
   var query = normalizeSearch_(filters.query || "");
-  var salesRows = readSheetRows_(spreadsheet.getSheetByName(APP.sheets.sales), HEADERS.sales.length);
-  var paymentRows = readSheetRows_(spreadsheet.getSheetByName(APP.sheets.payments), HEADERS.payments.length);
-  var detailRows = readSheetRows_(spreadsheet.getSheetByName(APP.sheets.details), HEADERS.details.length);
+  var salesRows = readSheetRows_(spreadsheet.getSheetByName(APP.sheets.sales), HEADERS.sales.length)
+    .filter(function (row) {
+      var dateKey = dateValueToKey_(row[5], timezone);
+      return row[0] && dateKey >= dateFrom && dateKey <= dateTo;
+    });
+  var selectedSaleIds = Object.create(null);
+  salesRows.forEach(function (row) { selectedSaleIds[String(row[0])] = true; });
+  var paymentRows = salesRows.length ? readSheetRows_(spreadsheet.getSheetByName(APP.sheets.payments), HEADERS.payments.length) : [];
+  var detailRows = salesRows.length ? readSheetRows_(spreadsheet.getSheetByName(APP.sheets.details), HEADERS.details.length) : [];
   var paymentsBySale = {};
   var detailsBySale = {};
 
   paymentRows.forEach(function (row) {
     var saleId = String(row[0] || "");
-    if (!saleId) return;
+    if (!selectedSaleIds[saleId]) return;
     if (!paymentsBySale[saleId]) paymentsBySale[saleId] = [];
     paymentsBySale[saleId].push({
       method: String(row[2] || "").toLowerCase(),
@@ -395,7 +407,7 @@ function getIncomeReport_(filters) {
 
   detailRows.forEach(function (row) {
     var saleId = String(row[0] || "");
-    if (!saleId) return;
+    if (!selectedSaleIds[saleId]) return;
     if (!detailsBySale[saleId]) detailsBySale[saleId] = [];
     detailsBySale[saleId].push({
       lineId: String(row[2] || ""),
@@ -427,9 +439,6 @@ function getIncomeReport_(filters) {
 
   salesRows.forEach(function (row) {
     var saleId = String(row[0] || "");
-    if (!saleId) return;
-    var dateKey = dateValueToKey_(row[5], timezone);
-    if (!dateKey || dateKey < dateFrom || dateKey > dateTo) return;
     var total = asNumber_(row[12]);
     var payments = paymentsBySale[saleId] || [];
     if (!payments.length && row[13]) payments = [{ method: String(row[13]).toLowerCase(), amount: total, reference: String(row[14] || "") }];
@@ -437,12 +446,14 @@ function getIncomeReport_(filters) {
     if (methodFilter === "mixed" && !isMixed) return;
     if (methodFilter !== "all" && methodFilter !== "mixed" && !payments.some(function (payment) { return payment.method === methodFilter; })) return;
     var items = detailsBySale[saleId] || [];
-    var searchText = normalizeSearch_([
-      saleId, row[1], row[4], row[6], row[7], row[13], row[14],
-      payments.map(function (payment) { return payment.method + " " + payment.reference; }).join(" "),
-      items.map(function (item) { return item.name; }).join(" ")
-    ].join(" "));
-    if (query && searchText.indexOf(query) < 0) return;
+    if (query) {
+      var searchText = normalizeSearch_([
+        saleId, row[1], row[4], row[6], row[7], row[13], row[14],
+        payments.map(function (payment) { return payment.method + " " + payment.reference; }).join(" "),
+        items.map(function (item) { return item.name; }).join(" ")
+      ].join(" "));
+      if (searchText.indexOf(query) < 0) return;
+    }
     var cost = items.reduce(function (sum, item) { return sum + asNumber_(item.cost); }, 0);
     var record = {
       saleId: saleId,
@@ -481,17 +492,32 @@ function getIncomeReport_(filters) {
     });
   });
 
-  records.sort(function (left, right) { return String(right.date).localeCompare(String(left.date)); });
+  records.sort(function (left, right) {
+    return String(right.date).localeCompare(String(left.date)) || String(right.saleId).localeCompare(String(left.saleId));
+  });
   totals.averageTicket = totals.sales ? totals.income / totals.sales : 0;
   var totalRecords = records.length;
   var limit = Math.min(500, Math.max(50, asNumber_(filters.limit) || 300));
+  var cursor = filters.cursor || {};
+  var cursorDate = String(cursor.date || "");
+  var cursorSaleId = String(cursor.saleId || "");
+  var remaining = cursorDate && cursorSaleId ? records.filter(function (record) {
+    var dateOrder = String(record.date).localeCompare(cursorDate);
+    return dateOrder < 0 || (dateOrder === 0 && String(record.saleId).localeCompare(cursorSaleId) < 0);
+  }) : records;
+  var page = remaining.slice(0, limit);
+  var hasMore = remaining.length > limit;
+  var lastRecord = page[page.length - 1];
   return {
     filters: { dateFrom: dateFrom, dateTo: dateTo, paymentMethod: methodFilter, query: String(filters.query || "") },
     totals: totals,
-    records: records.slice(0, limit),
-    recordKeys: records.slice(0, 1200).map(function (record) { return record.saleId; }),
+    records: page,
+    recordKeys: cursorDate ? [] : records.map(function (record) { return record.saleId; }),
+    sessionKeys: cursorDate ? [] : records.map(function (record) { return record.sessionId; }).filter(Boolean),
     totalRecords: totalRecords,
-    truncated: totalRecords > limit,
+    truncated: hasMore,
+    hasMore: hasMore,
+    nextCursor: hasMore && lastRecord ? { date: lastRecord.date, saleId: lastRecord.saleId } : null,
     generatedAt: new Date().toISOString()
   };
 }

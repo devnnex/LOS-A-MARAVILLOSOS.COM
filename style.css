@@ -3662,6 +3662,9 @@ button:disabled {
 .income-search svg { position: absolute; left: .82rem; z-index: 1; color: #169653; pointer-events: none; }
 .income-search input { width: 100%; min-width: 0; padding-left: 2.55rem; }
 .income-filter-form .primary { min-height: 44px; white-space: nowrap; }
+.income-filter-form .primary[hidden] { display: none; }
+.history-more-button { display: flex; margin: 1rem auto 0; }
+.history-more-button[hidden] { display: none; }
 .income-filter-summary { display: flex; align-items: center; gap: .35rem; min-height: 24px; color: #667181; font-size: .76rem; flex-wrap: wrap; }
 .income-filter-summary svg { color: #169653; }
 

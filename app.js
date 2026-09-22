@@ -10,7 +10,7 @@ try { SUPABASE_CONFIG.url = new URL(String(SUPABASE_CONFIG.url || "").trim()).or
 
 const APPS_SCRIPT_CONFIG = {
   // Tambien puede configurarse desde Inventario > Respaldo remoto del negocio.
-  webAppUrl: "https://script.google.com/macros/s/AKfycbz6Wj_oZuRwqE8v-TJvlViaJB_l836NrT76pNwM5E7i9CW72aZmPezHgoYkYLVinBm1/exec"
+  webAppUrl: "https://script.google.com/macros/s/AKfycbwJiieFJ1OoR0TCU45yesBFxvPydXexG3Na1dnveblcsJQ-rWgY7WevMp8BDaagnzkc/exec"
 };
 const APPS_SCRIPT_REQUIRED_VERSION = "2.8.0";
 const APPS_SCRIPT_TIMEOUT_MS = 45000;
@@ -297,6 +297,9 @@ const App = (() => {
     users: [],
     inventoryMeta: {},
     inventoryMovements: [],
+    movementRequestId: 0,
+    movementNextBeforeRow: null,
+    movementLoadingMore: false,
     movementSearch: "",
     movementTypeFilter: "all",
     invoiceHistory: [],
@@ -305,9 +308,15 @@ const App = (() => {
     inventoryCategoryFilter: "all",
     incomeReport: null,
     incomeLoading: false,
+    incomeLoadingMore: false,
     incomeRequestId: 0,
-    incomeRangePreset: "today",
+    incomeRequestKey: "",
+    incomeRangePreset: "month",
     incomeSearchTimer: null,
+    incomeRecoveryPromise: null,
+    incomeRecoveredRanges: new Set(),
+    incomeRecoveryReport: null,
+    incomeLastRequestAt: 0,
     productPickerMatches: [],
     consumptionDrafts: [],
     activePaymentTotal: 0,
@@ -741,8 +750,7 @@ const App = (() => {
       }
       if (section === "income") {
         initializeIncomeFilters();
-        renderIncomeReport();
-        void loadIncomeReport();
+        if (!state.incomeLoading || state.incomeRequestKey !== JSON.stringify(incomeFiltersFromForm())) void loadIncomeReport();
       }
       if (section === "users") renderUsers();
       if (section === "assistant") renderAdminAi();
@@ -1766,7 +1774,10 @@ const App = (() => {
 
   const persistInventoryMovements = () => {
     try {
-      localStorage.setItem(INVENTORY_MOVEMENTS_STORAGE_KEY, JSON.stringify(state.inventoryMovements.slice(-3000)));
+      const recent = [...state.inventoryMovements]
+        .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")))
+        .slice(0, 3000);
+      localStorage.setItem(INVENTORY_MOVEMENTS_STORAGE_KEY, JSON.stringify(recent));
     } catch (error) { /* Historial remoto y memoria siguen disponibles. */ }
   };
 
@@ -3826,7 +3837,7 @@ const App = (() => {
       .filter((table) => table.is_active !== false)
       .sort((left, right) => Number(left.table_number || 0) - Number(right.table_number || 0));
     const validIds = new Set(tables.map((table) => String(table.id)));
-    if (!(state.outdoorTableDraftIds instanceof Set)) {
+    if (!state.outdoorTableDraftDirty || !(state.outdoorTableDraftIds instanceof Set)) {
       state.outdoorTableDraftIds = new Set(tables.filter(isOutdoorTable).map((table) => String(table.id)));
     } else {
       state.outdoorTableDraftIds = new Set([...state.outdoorTableDraftIds].filter((id) => validIds.has(String(id))));
@@ -4398,7 +4409,7 @@ const App = (() => {
 
   const movementKind = (movement) => Number(movement.delta ?? movement.quantityChange ?? 0) >= 0 ? "entry" : "exit";
 
-  const renderInventoryMovements = () => {
+  const renderInventoryMovements = (appendIds = null) => {
     const list = $("#inventoryMovementList");
     const summary = $("#movementSummary");
     if (!list || !summary) return;
@@ -4410,11 +4421,20 @@ const App = (() => {
     const entries = movements.filter((movement) => movementKind(movement) === "entry").reduce((sum, movement) => sum + Number(movement.delta || 0), 0);
     const exits = movements.filter((movement) => movementKind(movement) === "exit").reduce((sum, movement) => sum + Math.abs(Number(movement.delta || 0)), 0);
     summary.innerHTML = `<article class="movement-kpi entry">${icon("arrow-down-to-line", 19)}<span><small>Unidades ingresadas</small><strong>+${entries.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></span></article><article class="movement-kpi exit">${icon("arrow-up-from-line", 19)}<span><small>Unidades retiradas</small><strong>-${exits.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></span></article><article class="movement-kpi">${icon("list-checks", 19)}<span><small>Movimientos visibles</small><strong>${movements.length}</strong></span></article>`;
-    list.innerHTML = movements.length ? movements.map((movement) => {
+    const append = appendIds instanceof Set && Boolean(list.querySelector(".movement-row"));
+    const visibleRows = append ? movements.filter((movement) => appendIds.has(String(movement.movementId))) : movements;
+    const markup = visibleRows.length ? visibleRows.map((movement) => {
       const delta = Number(movement.delta ?? movement.quantityChange ?? 0);
       const kind = delta >= 0 ? "entry" : "exit";
       return `<article class="movement-row ${kind}"><span class="movement-direction">${icon(kind === "entry" ? "arrow-down-left" : "arrow-up-right", 20)}</span><div class="movement-product"><strong>${escapeHTML(movement.product || "Producto")}</strong><small>${escapeHTML(movement.code || "")}${movement.reference ? ` · ${escapeHTML(movement.reference)}` : ""}</small></div><div><small>Movimiento</small><strong>${escapeHTML(String(movement.type || (kind === "entry" ? "ENTRADA" : "SALIDA")).replaceAll("_", " "))}</strong></div><div><small>Existencia</small><strong>${Number(movement.before || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })} → ${Number(movement.after || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></div><strong class="movement-delta">${delta > 0 ? "+" : ""}${delta.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong><div class="movement-audit"><span><strong>${escapeHTML(movement.user || "Sistema")}</strong><small>${escapeHTML(prettyDateTime(movement.date))}</small></span><button class="icon-btn danger" type="button" data-delete-movement="${escapeHTML(movement.movementId)}" aria-label="Eliminar movimiento y restaurar existencias">${icon("trash-2", 16)}</button></div></article>`;
-    }).join("") : emptyState("Sin movimientos", query ? "No hay coincidencias para este filtro." : "Las entradas y salidas apareceran aqui con su responsable.", "arrow-left-right");
+    }).join("") : "";
+    if (append) {
+      if (markup) list.insertAdjacentHTML("beforeend", markup);
+    } else {
+      list.innerHTML = markup || emptyState("Sin movimientos", query ? "No hay coincidencias para este filtro." : "Las entradas y salidas apareceran aqui con su responsable.", "arrow-left-right");
+    }
+    const more = $("#loadMoreMovements");
+    if (more) more.hidden = !state.movementNextBeforeRow;
     refreshIcons();
   };
 
@@ -4440,21 +4460,68 @@ const App = (() => {
 
   const loadInventoryMovements = async () => {
     if (!isAppsScriptConfigured() || !state.currentUser) return false;
+    const requestId = ++state.movementRequestId;
+    state.movementNextBeforeRow = null;
+    const more = $("#loadMoreMovements");
+    if (more) more.hidden = true;
     try {
       const result = await appsScriptRequest("get_inventory_movements", { limit: 800 });
       if (!result?.ok || !Array.isArray(result.movements)) throw new Error(result?.error || "El historial remoto devolvió una respuesta inválida.");
+      if (requestId !== state.movementRequestId) return false;
       const pendingIds = pendingInventoryMovementIds();
       const merged = new Map(state.inventoryMovements
         .filter((movement) => pendingIds.has(String(movement.movementId || "")))
         .map((movement) => [movement.movementId, movement]));
       result.movements.forEach((movement) => merged.set(movement.movementId, movement));
       state.inventoryMovements = Array.from(merged.values()).slice(-3000);
+      state.movementNextBeforeRow = result.hasMore ? Number(result.nextBeforeRow) || null : null;
       persistInventoryMovements();
-      renderInventoryMovements();
+      if (state.activeAdminSection === "movements") renderInventoryMovements();
       return true;
     } catch (error) {
-      renderInventoryMovements();
+      if (requestId !== state.movementRequestId) return false;
+      if (state.activeAdminSection === "movements") renderInventoryMovements();
       return false;
+    }
+  };
+
+  const loadMoreInventoryMovements = async () => {
+    if (state.movementLoadingMore || !state.movementNextBeforeRow || !isAppsScriptConfigured()) return false;
+    const button = $("#loadMoreMovements");
+    const beforeRow = state.movementNextBeforeRow;
+    const requestId = state.movementRequestId;
+    state.movementLoadingMore = true;
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Cargando movimientos...";
+    }
+    try {
+      const result = await appsScriptRequest("get_inventory_movements", { limit: 800, beforeRow });
+      if (!result?.ok || !Array.isArray(result.movements)) throw new Error(result?.error || "No se pudieron cargar más movimientos.");
+      if (requestId !== state.movementRequestId) return false;
+      const previousOldestDate = state.inventoryMovements.reduce((oldest, movement) => {
+        const date = String(movement.date || "");
+        return !oldest || date < oldest ? date : oldest;
+      }, "");
+      const knownIds = new Set(state.inventoryMovements.map((movement) => String(movement.movementId)));
+      const additions = result.movements.filter((movement) => !knownIds.has(String(movement.movementId)));
+      state.inventoryMovements.push(...additions);
+      state.movementNextBeforeRow = result.hasMore ? Number(result.nextBeforeRow) || null : null;
+      persistInventoryMovements();
+      if (state.activeAdminSection === "movements") {
+        const appendInOrder = additions.every((movement) => String(movement.date || "") <= previousOldestDate);
+        renderInventoryMovements(appendInOrder ? new Set(additions.map((movement) => String(movement.movementId))) : null);
+      }
+      return true;
+    } catch (error) {
+      if (requestId === state.movementRequestId) toast(String(error?.message || error), "error", "more-movements-failed");
+      return false;
+    } finally {
+      state.movementLoadingMore = false;
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Ver más movimientos";
+      }
     }
   };
 
@@ -4656,8 +4723,8 @@ const App = (() => {
     return next;
   };
 
-  const incomeRangeDates = (preset = "today") => {
-    const today = new Date();
+  const incomeRangeDates = (preset = "month") => {
+    const today = new Date(`${incomeRecordDateKey(new Date())}T12:00:00`);
     let from = today;
     let to = today;
     if (preset === "yesterday") from = to = shiftedDate(today, -1);
@@ -4675,6 +4742,8 @@ const App = (() => {
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+    const apply = $("#incomeFilterForm button[type='submit']");
+    if (apply) apply.hidden = state.incomeRangePreset !== "custom";
   };
 
   const initializeIncomeFilters = () => {
@@ -4734,34 +4803,6 @@ const App = (() => {
       return result;
     }, {});
     return `${parts.year}-${parts.month}-${parts.day}`;
-  };
-
-  const shiftedIncomeDateKey = (dateKey, days) => {
-    const date = new Date(`${dateKey}T12:00:00`);
-    date.setDate(date.getDate() + days);
-    return dateInputValue(date);
-  };
-
-  const expandedRemoteIncomeFilters = (filters) => ({
-    ...filters,
-    dateFrom: shiftedIncomeDateKey(filters.dateFrom, -1),
-    dateTo: shiftedIncomeDateKey(filters.dateTo, 1)
-  });
-
-  const restrictRemoteIncomeReportDates = (report, filters) => {
-    const records = (report.records || []).filter((record) => {
-      const dateKey = incomeRecordDateKey(record.date);
-      return dateKey >= filters.dateFrom && dateKey <= filters.dateTo;
-    });
-    return {
-      ...report,
-      filters,
-      records,
-      recordKeys: records.flatMap((record) => [record.saleId, record.sessionId]).map(String).filter(Boolean),
-      totals: incomeTotalsFromRecords(records),
-      totalRecords: records.length,
-      truncated: false
-    };
   };
 
   const incomeTotalsFromRecords = (records = []) => {
@@ -4851,6 +4892,7 @@ const App = (() => {
 
   const incomeReportIdentityKeys = (report = {}) => new Set([
     ...(report.recordKeys || []),
+    ...(report.sessionKeys || []),
     ...(report.records || []).flatMap((record) => [record.saleId, record.sessionId])
   ].map(String).filter(Boolean));
 
@@ -4903,7 +4945,7 @@ const App = (() => {
   };
 
   const queueIncomeRecoveryFromMovements = async (remoteReport) => {
-    await loadInventoryMovements();
+    if (!await loadInventoryMovements()) return 0;
     const deletedSessions = new Set(state.inventoryMovements
       .filter((movement) => String(movement.type || "").toUpperCase() === "VENTA_ELIMINADA")
       .map((movement) => String(movement.sessionId || ""))
@@ -4933,7 +4975,10 @@ const App = (() => {
     const remoteKeys = incomeReportIdentityKeys(remoteReport);
     const jobs = readAppsScriptOutbox();
     let queued = 0;
+    const reportFilters = remoteReport.filters || {};
     closedSessions.forEach((session) => {
+      const dateKey = incomeRecordDateKey(session.closed_at || session.updated_at);
+      if (dateKey < reportFilters.dateFrom || dateKey > reportFilters.dateTo) return;
       if (remoteKeys.has(String(session.id))) return;
       const invoice = recoveredInvoiceFromClosedSession(session);
       const saleId = String(invoice.id || invoice.sessionId || "");
@@ -5070,7 +5115,7 @@ const App = (() => {
     return new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short" }).format(date);
   };
 
-  const renderIncomeReport = () => {
+  const renderIncomeReport = ({ appendFrom = 0 } = {}) => {
     const kpis = $("#incomeKpis");
     const payments = $("#incomePaymentBreakdown");
     const recordsTarget = $("#incomeRecords");
@@ -5078,8 +5123,11 @@ const App = (() => {
     if (!kpis || !payments || !recordsTarget) return;
     const report = state.incomeReport;
     if (!report) {
+      const more = $("#loadMoreIncome");
+      if (more) more.hidden = true;
       kpis.innerHTML = Array.from({ length: 3 }, () => '<article class="income-kpi is-loading"><span></span><strong></strong><small></small></article>').join("");
       payments.innerHTML = "";
+      if (summaryTarget) summaryTarget.innerHTML = "";
       recordsTarget.innerHTML = emptyState("Preparando contabilidad", "Estamos consultando las ventas cerradas.", "loader-circle");
       setIncomeReportStatus("Consultando ingresos", "loading", "loader-circle");
       return;
@@ -5103,8 +5151,8 @@ const App = (() => {
       const methodText = filters.paymentMethod === "all" ? "todos los medios" : incomePaymentLabel(filters.paymentMethod);
       summaryTarget.innerHTML = `${icon("calendar-range", 15)} <strong>${escapeHTML(filters.dateFrom)}</strong> a <strong>${escapeHTML(filters.dateTo)}</strong> · ${escapeHTML(methodText)}${filters.query ? ` · Búsqueda: “${escapeHTML(filters.query)}”` : ""}`;
     }
-    recordsTarget.innerHTML = report.records?.length
-      ? report.records.map((record) => {
+    const recordRows = report.records?.length
+      ? report.records.slice(appendFrom).map((record) => {
           const paymentBadges = (record.payments || []).map((payment) => `<span>${escapeHTML(incomePaymentLabel(payment.method))} <strong>${money(payment.amount)}</strong></span>`).join("");
           const itemRows = (record.items || []).map((item) => `<li><span>${Number(item.quantity || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })} × ${escapeHTML(item.name)}</span><strong>${money(item.total)}</strong></li>`).join("");
           return `<article class="income-record">
@@ -5125,10 +5173,57 @@ const App = (() => {
           </article>`;
         }).join("")
       : emptyState("Sin ingresos en este rango", "Prueba otro periodo, medio de pago o término de búsqueda.", "receipt-text");
+    if (appendFrom && report.records?.length) recordsTarget.insertAdjacentHTML("beforeend", recordRows);
+    else recordsTarget.innerHTML = recordRows;
+    const more = $("#loadMoreIncome");
+    if (more) more.hidden = !report.hasMore || !report.nextCursor;
     const pendingText = report.pendingCount ? ` · ${report.pendingCount} pendiente${report.pendingCount === 1 ? "" : "s"} de respaldo` : "";
-    const limitedText = report.truncated ? " · mostrando los 300 más recientes" : "";
+    const limitedText = report.hasMore ? ` · mostrando ${Number(report.records?.length || 0).toLocaleString("es-CO")} de ${Number(report.totalRecords || 0).toLocaleString("es-CO")}` : "";
     setIncomeReportStatus(`${Number(report.totalRecords || 0).toLocaleString("es-CO")} factura${Number(report.totalRecords || 0) === 1 ? "" : "s"}${pendingText}${limitedText}`, report.localOnly ? "warning" : "ready", report.localOnly ? "hard-drive" : "badge-check");
     refreshIcons();
+  };
+
+  const scheduleIncomeRecovery = (remoteReport) => {
+    if (state.activeAdminSection !== "income" || remoteReport.filters?.query || remoteReport.filters?.paymentMethod !== "all") return;
+    state.incomeRecoveryReport = remoteReport;
+    const recoveryKey = (report) => `${report.filters.dateFrom}:${report.filters.dateTo}`;
+    if (state.incomeRecoveryPromise || state.incomeRecoveredRanges.has(recoveryKey(remoteReport))) return;
+    const waitForIncomeIdle = () => new Promise((resolve) => {
+      const check = () => {
+        if (state.activeAdminSection !== "income") return resolve(false);
+        const currentFilters = incomeFiltersFromForm();
+        if (currentFilters.query || currentFilters.paymentMethod !== "all") return resolve(false);
+        if (currentFilters.dateFrom !== state.incomeRecoveryReport.filters.dateFrom || currentFilters.dateTo !== state.incomeRecoveryReport.filters.dateTo) return resolve(false);
+        if (state.incomeLoading || Date.now() - state.incomeLastRequestAt < 600) {
+          window.setTimeout(check, 300);
+          return;
+        }
+        resolve(true);
+      };
+      window.setTimeout(check, 600);
+    });
+    state.incomeRecoveryPromise = waitForIncomeIdle()
+      .then(async (ready) => {
+        if (!ready) return;
+        const report = state.incomeRecoveryReport;
+        const key = recoveryKey(report);
+        if (state.incomeRecoveredRanges.has(key)) return;
+        state.incomeRecoveredRanges.add(key);
+        const recovered = await queueIncomeRecoveryFromMovements(report);
+        if (!recovered) return;
+        const synced = await flushAppsScriptOutbox();
+        if (synced && !readAppsScriptOutbox().length && state.activeAdminSection === "income") {
+          await loadIncomeReport();
+        }
+      })
+      .catch((error) => console.warn("No se pudo conciliar ingresos cerrados desde movimientos.", error))
+      .finally(() => {
+        state.incomeRecoveryPromise = null;
+        const report = state.incomeRecoveryReport;
+        if (!report || state.incomeRecoveredRanges.has(recoveryKey(report)) || state.activeAdminSection !== "income") return;
+        const filters = incomeFiltersFromForm();
+        if (!filters.query && filters.paymentMethod === "all" && filters.dateFrom === report.filters.dateFrom && filters.dateTo === report.filters.dateTo) scheduleIncomeRecovery(report);
+      });
   };
 
   const loadIncomeReport = async () => {
@@ -5139,7 +5234,11 @@ const App = (() => {
       return false;
     }
     const requestId = ++state.incomeRequestId;
+    state.incomeRequestKey = JSON.stringify(filters);
+    state.incomeLastRequestAt = Date.now();
     state.incomeLoading = true;
+    state.incomeReport = null;
+    renderIncomeReport();
     if (!navigator.onLine || !isAppsScriptConfigured()) {
       state.incomeReport = localIncomeReport(filters);
       renderIncomeReport();
@@ -5147,26 +5246,13 @@ const App = (() => {
     setIncomeReportStatus("Actualizando informe", "loading", "loader-circle");
     try {
       if (!isAppsScriptConfigured()) throw new Error("El historial remoto no está configurado.");
-      const remoteFilters = expandedRemoteIncomeFilters(filters);
-      let result = await appsScriptRequest("get_income_report", { filters: remoteFilters }, APPS_SCRIPT_TIMEOUT_MS);
+      const result = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
       if (!result?.ok) throw new Error(result?.error || "No se pudo consultar el historial.");
-      let recovered = 0;
-      try {
-        recovered = await queueIncomeRecoveryFromMovements(result);
-      } catch (recoveryError) {
-        console.warn("No se pudo conciliar ingresos cerrados desde movimientos.", recoveryError);
-      }
-      if (recovered) {
-        const synced = await flushAppsScriptOutbox();
-        if (synced && !readAppsScriptOutbox().length) {
-          const refreshed = await appsScriptRequest("get_income_report", { filters: remoteFilters }, APPS_SCRIPT_TIMEOUT_MS);
-          if (refreshed?.ok) result = refreshed;
-        }
-      }
       if (requestId !== state.incomeRequestId) return false;
       state.incomeLoading = false;
-      state.incomeReport = mergeIncomeReport(restrictRemoteIncomeReportDates(result, filters), filters);
+      state.incomeReport = mergeIncomeReport(result, filters);
       renderIncomeReport();
+      scheduleIncomeRecovery(result);
       return true;
     } catch (error) {
       if (requestId !== state.incomeRequestId) return false;
@@ -5177,6 +5263,48 @@ const App = (() => {
       return false;
     } finally {
       if (requestId === state.incomeRequestId) state.incomeLoading = false;
+    }
+  };
+
+  const loadMoreIncomeReport = async () => {
+    const report = state.incomeReport;
+    if (state.incomeLoading || state.incomeLoadingMore || !report?.hasMore || !report.nextCursor) return false;
+    const button = $("#loadMoreIncome");
+    const requestId = state.incomeRequestId;
+    state.incomeLoadingMore = true;
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Cargando ventas...";
+    }
+    try {
+      const result = await appsScriptRequest("get_income_report", {
+        filters: { ...report.filters, limit: 300, cursor: report.nextCursor }
+      }, APPS_SCRIPT_TIMEOUT_MS);
+      if (!result?.ok || !Array.isArray(result.records) || (result.hasMore && !result.nextCursor)) {
+        throw new Error(result?.error || "No se pudieron cargar más ventas.");
+      }
+      if (requestId !== state.incomeRequestId || state.incomeReport !== report) return false;
+      const knownIds = new Set(report.records.map((record) => String(record.saleId)));
+      const additions = result.records.filter((record) => !knownIds.has(String(record.saleId)));
+      const appendFrom = report.records.length;
+      state.incomeReport = {
+        ...report,
+        records: [...report.records, ...additions],
+        hasMore: result.hasMore === true,
+        nextCursor: result.nextCursor || null,
+        truncated: result.hasMore === true
+      };
+      renderIncomeReport({ appendFrom });
+      return true;
+    } catch (error) {
+      if (requestId === state.incomeRequestId) toast(String(error?.message || error), "error", "more-income-failed");
+      return false;
+    } finally {
+      state.incomeLoadingMore = false;
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Ver más ventas";
+      }
     }
   };
 
@@ -5265,6 +5393,7 @@ const App = (() => {
       items: state.items.map((item) => ({ ...item })),
       inventoryMeta: JSON.parse(JSON.stringify(state.inventoryMeta)),
       inventoryMovements: state.inventoryMovements.map((movement) => ({ ...movement })),
+      movementNextBeforeRow: state.movementNextBeforeRow,
       invoiceHistory: state.invoiceHistory.map((invoice) => ({ ...invoice })),
       incomeReport: state.incomeReport,
       lastPaidReceipt: state.lastPaidReceipt
@@ -5287,7 +5416,9 @@ const App = (() => {
         renderMenuManager();
       }
       if (section === "movements") {
+        state.movementRequestId += 1;
         state.inventoryMovements = [];
+        state.movementNextBeforeRow = null;
         state.movementSearch = "";
         state.movementTypeFilter = "all";
         if ($("#movementSearch")) $("#movementSearch").value = "";
@@ -5351,6 +5482,7 @@ const App = (() => {
       }
       if (section === "movements") {
         state.inventoryMovements = snapshot.inventoryMovements;
+        state.movementNextBeforeRow = snapshot.movementNextBeforeRow;
         persistInventoryMovements();
         renderInventoryMovements();
       }
@@ -5882,6 +6014,7 @@ const App = (() => {
       persistInventoryMovements();
       applyRemoteInventoryItems(result.items);
       renderInventoryMovements();
+      void loadInventoryMovements();
       toast("Movimiento eliminado y existencias restauradas.", "ok", `movement-deleted:${movementId}`);
     } catch (error) {
       toast(String(error?.message || error), "error", `movement-delete-failed:${movementId}`);
@@ -6635,17 +6768,27 @@ const App = (() => {
       if (state.activeAdminSection === "income") renderIncomeReport();
       return;
     }
+    const report = state.incomeReport;
+    if (["dateFrom", "dateTo", "paymentMethod", "query"].some((key) => report.filters?.[key] !== filters[key])) return;
+    const previousRecord = (report.records || []).find((record) => String(record.saleId) === String(localRecord.saleId));
     const records = [
       localRecord,
-      ...(state.incomeReport.records || []).filter((record) => String(record.saleId) !== String(localRecord.saleId))
+      ...(report.records || []).filter((record) => String(record.saleId) !== String(localRecord.saleId))
     ].sort((left, right) => String(right.date).localeCompare(String(left.date)));
+    const addedTotals = incomeTotalsFromRecords([localRecord]);
+    const removedTotals = previousRecord ? incomeTotalsFromRecords([previousRecord]) : incomeTotalsFromRecords([]);
+    const totals = { ...report.totals };
+    Object.keys(addedTotals).filter((key) => key !== "averageTicket").forEach((key) => {
+      totals[key] = Number(totals[key] || 0) + Number(addedTotals[key] || 0) - Number(removedTotals[key] || 0);
+    });
+    totals.averageTicket = totals.sales ? totals.income / totals.sales : 0;
     state.incomeReport = {
-      ...state.incomeReport,
+      ...report,
       filters,
       records,
-      totals: incomeTotalsFromRecords(records),
-      totalRecords: Math.max(Number(state.incomeReport.totalRecords || 0) + 1, records.length),
-      pendingCount: Number(state.incomeReport.pendingCount || 0) + 1
+      totals,
+      totalRecords: Math.max(Number(report.totalRecords || 0) + (previousRecord ? 0 : 1), records.length),
+      pendingCount: Number(report.pendingCount || 0) + (previousRecord ? 0 : 1)
     };
     if (state.activeAdminSection === "income") renderIncomeReport();
   };
@@ -7848,8 +7991,7 @@ const App = (() => {
     });
     $("#incomeFilterForm")?.addEventListener("submit", (event) => {
       event.preventDefault();
-      state.incomeRangePreset = "custom";
-      markIncomeRangePreset();
+      if (state.incomeRangePreset !== "custom") return;
       void loadIncomeReport();
     });
     $("#incomeEditForm")?.addEventListener("submit", async (event) => {
@@ -7873,7 +8015,6 @@ const App = (() => {
     [$("#incomeDateFrom"), $("#incomeDateTo")].filter(Boolean).forEach((input) => input.addEventListener("change", () => {
       state.incomeRangePreset = "custom";
       markIncomeRangePreset();
-      if ($("#incomeDateFrom")?.value && $("#incomeDateTo")?.value) void loadIncomeReport();
     }));
     $("#inventorySearch")?.addEventListener("input", (event) => {
       state.inventorySearch = event.currentTarget.value;
@@ -8223,9 +8364,12 @@ const App = (() => {
         await runRefreshAction(target, async () => {
           const flushed = await flushAppsScriptOutbox();
           if (!flushed || readAppsScriptOutbox().length) return false;
+          const filters = incomeFiltersFromForm();
+          state.incomeRecoveredRanges.delete(`${filters.dateFrom}:${filters.dateTo}`);
           return loadIncomeReport();
         }, "Informe de ingresos actualizado.");
       }
+      if (target.id === "loadMoreIncome") await loadMoreIncomeReport();
       if (target.id === "exportIncomeCsv") exportIncomeCsv();
       if (target.id === "newInventoryProduct") resetInventoryForm({ open: true });
       if (target.id === "cancelInventoryEdit") {
@@ -8239,6 +8383,7 @@ const App = (() => {
           return loadInventoryMovements();
         }, "Movimientos actualizados desde el historial oficial.");
       }
+      if (target.id === "loadMoreMovements") await loadMoreInventoryMovements();
       if (target.dataset.resetSection) {
         await resetSectionData(target.dataset.resetSection);
         return;

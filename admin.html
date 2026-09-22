@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="pwa-icon.svg" id="appFavicon" type="image/svg+xml">
     <link rel="apple-touch-icon" href="pwa-icon.svg" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20260920-table-search-1">
+    <link rel="stylesheet" href="style.css?v=20260921-history-more-1">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -367,6 +367,7 @@
             </label>
           </div>
           <div class="movement-list" id="inventoryMovementList"></div>
+          <button class="ghost history-more-button" id="loadMoreMovements" type="button" hidden>Ver más movimientos</button>
         </div>
       </section>
 
@@ -409,7 +410,7 @@
             </label>
             <label>Desde<input id="incomeDateFrom" name="date_from" type="date" required></label>
             <label>Hasta<input id="incomeDateTo" name="date_to" type="date" required></label>
-            <button class="primary" type="submit"><i data-lucide="sliders-horizontal"></i> Aplicar filtros</button>
+            <button class="primary" type="submit" hidden><i data-lucide="sliders-horizontal"></i> Aplicar filtros</button>
           </form>
           <div class="income-filter-summary" id="incomeFilterSummary" aria-live="polite"></div>
         </div>
@@ -427,6 +428,7 @@
             <span class="income-report-status" id="incomeReportStatus"><i data-lucide="loader-circle"></i> Preparando informe</span>
           </div>
           <div class="income-records" id="incomeRecords"></div>
+          <button class="ghost history-more-button" id="loadMoreIncome" type="button" hidden>Ver más ventas</button>
         </div>
       </section>
 
@@ -825,6 +827,6 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20260920-income-timezone-1"></script>
+    <script src="app.js?v=20260921-history-more-1"></script>
   </body>
 </html>
