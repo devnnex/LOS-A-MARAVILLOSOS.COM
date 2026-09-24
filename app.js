@@ -14,6 +14,7 @@ const APPS_SCRIPT_CONFIG = {
 };
 const APPS_SCRIPT_REQUIRED_VERSION = "2.10.0";
 const APPS_SCRIPT_TIMEOUT_MS = 45000;
+const FOOD_CATEGORY_NAMES = new Set(["comida", "hamburguesas", "pa picar", "perros", "picadas", "salchipapa"]);
 
 const isAppsScriptVersionCompatible = (version) => {
   const current = String(version || "").trim();
@@ -321,6 +322,8 @@ const App = (() => {
     incomeRequestId: 0,
     incomeRequestKey: "",
     incomeRangePreset: "month",
+    incomeFoodOnly: false,
+    incomeFoodLoadingAll: false,
     incomeSearchTimer: null,
     incomeRecoveryPromise: null,
     incomeRecoveredRanges: new Set(),
@@ -2067,6 +2070,49 @@ const App = (() => {
           if (freshItems.length) applyRemoteInventoryItems(freshItems);
         };
         if (!result?.ok) {
+          const currentIndex = queuedAfterRequest.findIndex((entry) => entry.id === job.id);
+          if (currentIndex < 0) {
+            jobs = queuedAfterRequest;
+            continue;
+          }
+          const inventoryVersionConflict = Boolean(
+            result?.conflict
+            && result.item
+            && currentIndex >= 0
+            && ["upsert_inventory", "set_inventory_stock"].includes(job.action)
+          );
+          if (inventoryVersionConflict) {
+            if (Number(queuedAfterRequest[currentIndex].conflictRebases || 0) >= 3) {
+              queuedAfterRequest[currentIndex].conflictRebases = 0;
+              jobs = queuedAfterRequest;
+              writeAppsScriptOutbox(jobs);
+              setInventorySyncStatus("Sincronización pendiente; reintento automático", "pending", "refresh-cw");
+              scheduleAppsScriptRetry();
+              return false;
+            }
+            const remoteStock = Math.max(0, Number(result.item.stock || 0));
+            const remoteVersion = Math.max(0, Number(result.item.version || 0));
+            const localPayload = queuedAfterRequest[currentIndex].payload || {};
+            if (job.action === "upsert_inventory") {
+              const localItem = localPayload.item || {};
+              localPayload.item = {
+                ...localItem,
+                stock: Math.max(0, remoteStock + Number(localItem.stockDelta || 0)),
+                version: remoteVersion
+              };
+            } else {
+              localPayload.stock = Math.max(0, remoteStock + Number(localPayload.stockDelta || 0));
+              localPayload.version = remoteVersion;
+            }
+            queuedAfterRequest[currentIndex] = {
+              ...queuedAfterRequest[currentIndex],
+              payload: localPayload,
+              conflictRebases: Number(queuedAfterRequest[currentIndex].conflictRebases || 0) + 1
+            };
+            jobs = queuedAfterRequest;
+            writeAppsScriptOutbox(jobs);
+            continue;
+          }
           const legacyInventoryService = job.action === "adjust_inventory"
             && /accion no permitida:\s*adjust_inventory/i.test(normalizeText(result?.error || ""));
           if (result?.retryable === false || legacyInventoryService) {
@@ -2080,11 +2126,6 @@ const App = (() => {
               "error",
               legacyInventoryService ? "inventory-service-update-required" : `inventory-job-rejected:${job.id}`
             );
-            continue;
-          }
-          const currentIndex = queuedAfterRequest.findIndex((entry) => entry.id === job.id);
-          if (currentIndex < 0) {
-            jobs = queuedAfterRequest;
             continue;
           }
           job.attempts = Number(job.attempts || 0) + 1;
@@ -4669,7 +4710,8 @@ const App = (() => {
       stock,
       minStock,
       unit: form.unit.value || "unidad",
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      version: Math.max(0, Number(previousInventory?.version || 0))
     };
     const beforeStock = Number(previousInventory?.stock || 0);
     const stockDelta = stock - beforeStock;
@@ -4690,7 +4732,8 @@ const App = (() => {
     queueInventoryUpsert(hydrated, movementEventId ? {
       movementEventId,
       movementType: id ? (stockDelta > 0 ? "ENTRADA_EDICION" : "SALIDA_EDICION") : "NUEVO_PRODUCTO",
-      movementReference: id ? "Edicion de producto" : "Registro inicial"
+      movementReference: id ? "Edicion de producto" : "Registro inicial",
+      stockDelta
     } : {});
     resetInventoryForm();
     $("#inventoryDialog")?.close();
@@ -4752,6 +4795,7 @@ const App = (() => {
     enqueueAppsScriptJob("set_inventory_stock", {
       productId: item.id,
       stock: nextStock,
+      stockDelta: delta,
       updatedAt: state.inventoryMeta[id].updatedAt,
       version: current.version
     }, `inventory-stock:${item.id}`);
@@ -4877,6 +4921,51 @@ const App = (() => {
     }, { income: 0, sales: 0, subtotal: 0, discount: 0, tax: 0, service: 0, cost: 0, profit: 0, cash: 0, transfer: 0, breb: 0, other: 0 });
     totals.averageTicket = totals.sales ? totals.income / totals.sales : 0;
     return totals;
+  };
+
+  const normalizedCategoryName = (value) => normalizeText(value || "")
+    .replace(/[\u2018\u2019']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const foodMenuItemIds = () => new Set(state.items
+    .filter((item) => FOOD_CATEGORY_NAMES.has(normalizedCategoryName(item.menu_categories?.name)))
+    .map((item) => String(item.id)));
+
+  const foodIncomeReport = (report) => {
+    if (!report || !state.incomeFoodOnly) return report;
+    const foodIds = foodMenuItemIds();
+    const records = (report.records || []).map((record) => {
+      const items = (record.items || []).filter((item) => foodIds.has(String(item.menuItemId || "")));
+      if (!items.length) return null;
+      const allItemsTotal = (record.items || []).reduce((sum, item) => sum + Number(item.total || 0), 0);
+      const foodItemsTotal = items.reduce((sum, item) => sum + Number(item.total || 0), 0);
+      const share = allItemsTotal > 0 ? foodItemsTotal / allItemsTotal : 0;
+      const total = Number(record.total || 0) * share;
+      const cost = items.reduce((sum, item) => sum + Number(item.cost || 0), 0);
+      const payments = (record.payments || []).map((payment) => ({
+        ...payment,
+        amount: Number(payment.amount || 0) * share
+      }));
+      return {
+        ...record,
+        subtotal: Number(record.subtotal || 0) * share,
+        discount: Number(record.discount || 0) * share,
+        tax: Number(record.tax || 0) * share,
+        service: Number(record.service || 0) * share,
+        total,
+        cost,
+        profit: total - cost,
+        payments,
+        items
+      };
+    }).filter(Boolean);
+    return {
+      ...report,
+      totals: incomeTotalsFromRecords(records),
+      records,
+      totalRecords: records.length
+    };
   };
 
   const localIncomeRecords = (filters) => {
@@ -5182,7 +5271,18 @@ const App = (() => {
     const recordsTarget = $("#incomeRecords");
     const summaryTarget = $("#incomeFilterSummary");
     if (!kpis || !payments || !recordsTarget) return;
-    const report = state.incomeReport;
+    const sourceReport = state.incomeReport;
+    const report = foodIncomeReport(sourceReport);
+    const incomeSection = $("#income");
+    incomeSection?.classList.toggle("is-food-view", state.incomeFoodOnly);
+    const foodToggle = $("#toggleFoodIncome");
+    if (foodToggle) {
+      foodToggle.classList.toggle("is-active", state.incomeFoodOnly);
+      foodToggle.setAttribute("aria-pressed", String(state.incomeFoodOnly));
+      foodToggle.innerHTML = state.incomeFoodOnly
+        ? `${icon("list-filter", 17)} <span>Ver todas las ventas</span>`
+        : `${icon("utensils", 17)} <span>Ventas de comidas</span>`;
+    }
     if (!report) {
       const more = $("#loadMoreIncome");
       if (more) more.hidden = true;
@@ -5196,8 +5296,9 @@ const App = (() => {
     const totals = report.totals || {};
     const margin = Number(totals.income || 0) > 0 ? Number(totals.profit || 0) / Number(totals.income) * 100 : 0;
     const infoButton = (label, explanation) => `<button class="income-kpi-info" type="button" aria-label="Qué significa ${escapeHTML(label)}" data-tooltip="${escapeHTML(explanation)}">${icon("info", 15)}</button>`;
+    const incomeLabel = state.incomeFoodOnly ? "Ventas de comidas" : "Dinero vendido";
     kpis.innerHTML = `
-        <article class="income-kpi is-primary">${infoButton("Dinero vendido", "Todo el dinero cobrado en las ventas de este periodo.")}<span>${icon("circle-dollar-sign", 19)} Dinero vendido</span><strong>${money(totals.income)}</strong><small>Total vendido en el periodo seleccionado</small></article>
+        <article class="income-kpi is-primary">${infoButton(incomeLabel, state.incomeFoodOnly ? "Dinero correspondiente únicamente a productos de las categorías de comida." : "Todo el dinero cobrado en las ventas de este periodo.")}<span>${icon("circle-dollar-sign", 19)} ${incomeLabel}</span><strong>${money(totals.income)}</strong><small>${state.incomeFoodOnly ? "Total de comidas en el periodo seleccionado" : "Total vendido en el periodo seleccionado"}</small></article>
         <article class="income-kpi is-profit">${infoButton("Ganancia aproximada", "Lo que queda al restar del dinero vendido el costo de los productos.")}<span>${icon("trending-up", 19)} Ganancia aproximada</span><strong>${money(totals.profit)}</strong><small>${margin.toLocaleString("es-CO", { maximumFractionDigits: 1 })}% del dinero vendido</small></article>
         <article class="income-kpi">${infoButton("Costo de los productos", "Lo que el negocio pagó por los productos que ya vendió.")}<span>${icon("package-search", 19)} Costo de los productos</span><strong>${money(totals.cost)}</strong><small>Valor de compra de lo que se vendió</small></article>`;
     payments.innerHTML = [
@@ -5219,33 +5320,38 @@ const App = (() => {
               <div class="income-record-invoice"><span>${escapeHTML(record.invoice || "Factura")}</span><small>${escapeHTML(formatIncomeDate(record.date))}</small>${isBoss() ? `<div class="income-record-actions" data-boss-only><button class="icon-btn" type="button" data-edit-income="${escapeHTML(record.saleId)}" aria-label="Editar venta">${icon("pencil", 15)}</button><button class="icon-btn danger" type="button" data-delete-income="${escapeHTML(record.saleId)}" aria-label="Eliminar venta completa">${icon("trash-2", 15)}</button></div>` : ""}</div>
               <div><small>Mesa / responsable</small><strong>${escapeHTML(record.table || "Mesa")}</strong><span>${escapeHTML(record.payer || "Sin responsable")}</span></div>
               <div><small>Atendido por</small><strong>${escapeHTML(record.waiter || "Sin asignar")}</strong><span>${escapeHTML(record.reference || "Sin referencia")}</span></div>
-              <div class="income-record-total"><small>Total</small><strong>${money(record.total)}</strong><span class="income-record-profit">Ganancia ${money(record.profit)}</span></div>
+              <div class="income-record-total"><small>${state.incomeFoodOnly ? "Total comidas" : "Total"}</small><strong>${money(record.total)}</strong><span class="income-record-profit">Ganancia ${money(record.profit)}</span></div>
             </div>
             <div class="income-payment-badges">${paymentBadges || "<span>Medio no registrado</span>"}</div>
             <details>
               <summary>${icon("list-collapse", 15)} Ver productos y desglose</summary>
               <div class="income-record-detail">
                 <ul>${itemRows || "<li><span>Sin detalle de productos</span></li>"}</ul>
-                <dl class="income-total-only"><div><dt>Total pagado</dt><dd>${money(record.total)}</dd></div></dl>
+                <dl class="income-total-only"><div><dt>${state.incomeFoodOnly ? "Total de comidas" : "Total pagado"}</dt><dd>${money(record.total)}</dd></div></dl>
               </div>
             </details>
           </article>`;
         }).join("")
-      : emptyState("Sin ventas en este rango", "Prueba otro periodo, medio de pago o término de búsqueda.", "receipt-text");
+      : emptyState(state.incomeFoodOnly ? "Sin ventas de comidas" : "Sin ventas en este rango", "Prueba otro periodo, medio de pago o término de búsqueda.", "receipt-text");
     if (appendFrom && report.records?.length) recordsTarget.insertAdjacentHTML("beforeend", recordRows);
     else recordsTarget.innerHTML = recordRows;
     const more = $("#loadMoreIncome");
-    const hasMore = report.localOnly
-      ? Number(report.nextIndex || 0) < (report.allLocalRecords || []).length
-      : Number(report.nextIndex || 0) < (report.recordRows || []).length;
+    const hasMore = sourceReport?.localOnly
+      ? Number(sourceReport.nextIndex || 0) < (sourceReport.allLocalRecords || []).length
+      : Number(sourceReport?.nextIndex || 0) < (sourceReport?.recordRows || []).length;
     if (more) {
       more.hidden = !hasMore;
       more.disabled = state.incomeLoadingMore || state.incomeLoading;
       more.textContent = state.incomeLoadingMore ? "Cargando ventas..." : "Ver más ventas";
     }
-    const pendingText = report.pendingCount ? ` · ${report.pendingCount} pendiente${report.pendingCount === 1 ? "" : "s"} de respaldo` : "";
-    const limitedText = hasMore ? ` · mostrando ${Number(report.records?.length || 0).toLocaleString("es-CO")} de ${Number(report.totalRecords || 0).toLocaleString("es-CO")}` : "";
-    setIncomeReportStatus(`${Number(report.totalRecords || 0).toLocaleString("es-CO")} factura${Number(report.totalRecords || 0) === 1 ? "" : "s"}${pendingText}${limitedText}`, report.localOnly ? "warning" : "ready", report.localOnly ? "hard-drive" : "badge-check");
+    const pendingText = sourceReport?.pendingCount ? ` · ${sourceReport.pendingCount} pendiente${sourceReport.pendingCount === 1 ? "" : "s"} de respaldo` : "";
+    const limitedText = hasMore
+      ? (state.incomeFoodOnly
+          ? " · cargando el resto del periodo"
+          : ` · mostrando ${Number(report.records?.length || 0).toLocaleString("es-CO")} de ${Number(sourceReport?.totalRecords || 0).toLocaleString("es-CO")}`)
+      : "";
+    const foodText = state.incomeFoodOnly ? " con comida" : "";
+    setIncomeReportStatus(`${Number(report.totalRecords || 0).toLocaleString("es-CO")} factura${Number(report.totalRecords || 0) === 1 ? "" : "s"}${foodText}${pendingText}${limitedText}`, report.localOnly ? "warning" : "ready", report.localOnly ? "hard-drive" : "badge-check");
     refreshIcons();
   };
 
@@ -5326,6 +5432,7 @@ const App = (() => {
       state.incomeFetchedAt = Date.now();
       state.incomeRevision = result.revision;
       if (state.activeAdminSection === "income") renderIncomeReport();
+      if (state.incomeFoodOnly) void loadAllIncomeRecordsForFoodView();
       return true;
     } catch (error) {
       if (requestId !== state.incomeRequestId) return false;
@@ -5337,6 +5444,7 @@ const App = (() => {
       state.incomeReport = localIncomeReport(filters, String(error?.message || error));
       state.incomeFetchedAt = Date.now();
       renderIncomeReport();
+      if (state.incomeFoodOnly) void loadAllIncomeRecordsForFoodView();
       setIncomeReportStatus("Mostrando ventas disponibles en esta caja", "warning", "hard-drive");
       return false;
     } finally {
@@ -5411,7 +5519,7 @@ const App = (() => {
       report.records = Array.from(merged.values()).sort((left, right) => String(right.date).localeCompare(String(left.date)) || String(right.saleId).localeCompare(String(left.saleId)));
       report.nextIndex = start + pageRows.length;
       const canAppend = previousIds.every((id, index) => String(report.records[index]?.saleId) === id);
-      renderIncomeReport({ appendFrom: canAppend ? previousIds.length : 0 });
+      renderIncomeReport({ appendFrom: state.incomeFoodOnly ? 0 : (canAppend ? previousIds.length : 0) });
       return true;
     } catch (error) {
       if (requestId === state.incomeRequestId) toast(String(error?.message || error), "error", "more-income-failed");
@@ -5423,6 +5531,37 @@ const App = (() => {
         button.textContent = "Ver más ventas";
       }
     }
+  };
+
+  const loadAllIncomeRecordsForFoodView = async () => {
+    if (!state.incomeFoodOnly || state.incomeFoodLoadingAll || !state.incomeReport) return;
+    state.incomeFoodLoadingAll = true;
+    const button = $("#toggleFoodIncome");
+    if (button) button.disabled = true;
+    try {
+      while (state.incomeFoodOnly && state.incomeReport) {
+        const report = state.incomeReport;
+        const hasMore = report.localOnly
+          ? Number(report.nextIndex || 0) < (report.allLocalRecords || []).length
+          : Number(report.nextIndex || 0) < (report.recordRows || []).length;
+        if (!hasMore || !await loadMoreIncomeReport()) break;
+      }
+    } finally {
+      state.incomeFoodLoadingAll = false;
+      if (button) button.disabled = false;
+      renderIncomeReport();
+    }
+  };
+
+  const toggleFoodIncomeView = () => {
+    state.incomeFoodOnly = !state.incomeFoodOnly;
+    const section = $("#income");
+    section?.classList.remove("income-view-fade");
+    void section?.offsetWidth;
+    section?.classList.add("income-view-fade");
+    window.setTimeout(() => section?.classList.remove("income-view-fade"), 320);
+    renderIncomeReport();
+    if (state.incomeFoodOnly) void loadAllIncomeRecordsForFoodView();
   };
 
   const waitForRemoteQueue = async () => {
@@ -5788,7 +5927,7 @@ const App = (() => {
   };
 
   const exportIncomeCsv = () => {
-    const records = state.incomeReport?.records || [];
+    const records = foodIncomeReport(state.incomeReport)?.records || [];
     if (!records.length) {
       toast("No hay ventas para exportar con estos filtros.", "error", "empty-income-export");
       return;
@@ -5808,7 +5947,7 @@ const App = (() => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `ventas-${state.incomeReport.filters?.dateFrom || "inicio"}-${state.incomeReport.filters?.dateTo || "hoy"}.csv`;
+    link.download = `${state.incomeFoodOnly ? "ventas-comidas" : "ventas"}-${state.incomeReport.filters?.dateFrom || "inicio"}-${state.incomeReport.filters?.dateTo || "hoy"}.csv`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -7250,11 +7389,40 @@ const App = (() => {
     refreshIcons();
   };
 
+  const formatConsumptionTimestamp = (value) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const dateParts = new Intl.DateTimeFormat("es-CO", {
+      timeZone: "America/Bogota",
+      day: "numeric",
+      month: "short",
+      year: "numeric"
+    }).formatToParts(date).reduce((parts, part) => ({ ...parts, [part.type]: part.value }), {});
+    const dateText = `${dateParts.day} ${String(dateParts.month || "").replace(/\./g, "")} ${dateParts.year}`;
+    const timeText = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Bogota",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    }).format(date).toLowerCase();
+    return `${dateText} · ${timeText}`;
+  };
+
+  const renderLastConsumptionTime = (session) => {
+    const target = $("#consumptionLastAdded");
+    if (!target) return;
+    const latest = newestSessionItems(session)[0];
+    const timestamp = latest?.created_at || latest?.updated_at || "";
+    target.hidden = !timestamp;
+    target.textContent = timestamp ? `Último consumo agregado: ${formatConsumptionTimestamp(timestamp)}` : "";
+  };
+
   const renderTableConsumptionPreview = (session) => {
     const preview = $("#tableConsumptionPreview");
     const actions = $("#tableSessionActions");
     if (!preview || !actions) return;
     const items = session ? newestSessionItems(session) : [];
+    const productCount = items.reduce((total, item) => total + Number(item.quantity || 0), 0);
     const emptyAccount = Boolean(session) && !items.length && sessionTotal(session) <= 0;
     actions.hidden = isWaiter() || !session || isLocalWalkInSession(session);
     const viewButton = $("#viewTableConsumption");
@@ -7269,7 +7437,7 @@ const App = (() => {
       preview.innerHTML = "";
       return;
     }
-    preview.innerHTML = `<div class="table-consumption-preview-head"><span>Consumo actual</span><strong>${money(sessionTotal(session))}</strong></div><div class="table-consumption-preview-lines">${items.map((item) => `<div><span>${Number(item.quantity || 0)} × ${escapeHTML(item.item_name)}</span><strong>${money(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>`).join("") || "<small>Sin consumos registrados.</small>"}</div>`;
+    preview.innerHTML = `<div class="table-consumption-preview-head"><span class="table-consumption-preview-title"><span>Consumo actual</span><small>${productCount.toLocaleString("es-CO")} ${productCount === 1 ? "producto" : "productos"}</small></span><strong>${money(sessionTotal(session))}</strong></div><div class="table-consumption-preview-lines">${items.map((item) => `<div><span class="table-consumption-item"><span>${Number(item.quantity || 0)} × ${escapeHTML(item.item_name)}</span>${item.created_at ? `<time datetime="${escapeHTML(item.created_at)}">${escapeHTML(formatConsumptionTimestamp(item.created_at))}</time>` : ""}</span><strong>${money(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>`).join("") || "<small>Sin consumos registrados.</small>"}</div>`;
     setTableConsumptionPreviewVisible(false);
   };
 
@@ -7540,6 +7708,7 @@ const App = (() => {
     if ($("#consumptionQueueButton")) $("#consumptionQueueButton").hidden = false;
     renderConsumptionSelection();
     renderTableConsumptionPreview(session);
+    renderLastConsumptionTime(session);
     closeConsumptionProductOptions();
     dialog.showModal();
     window.setTimeout(() => {
@@ -8561,6 +8730,7 @@ const App = (() => {
           return coreRefreshed && inventoryRefreshed;
         }, "Inventario actualizado desde las fuentes oficiales.");
       }
+      if (target.id === "toggleFoodIncome") toggleFoodIncomeView();
       if (target.dataset.incomeRange) setIncomeRange(target.dataset.incomeRange);
       if (target.dataset.editIncome) openIncomeEdit(target.dataset.editIncome);
       if (target.dataset.deleteIncome) openDeleteIncomeDialog(target.dataset.deleteIncome);

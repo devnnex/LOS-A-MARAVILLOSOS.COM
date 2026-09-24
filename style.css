@@ -3795,6 +3795,15 @@ button:disabled {
 .income-heading p { margin: 0; }
 .income-heading p { margin-top: .35rem; color: var(--muted); }
 .income-heading-actions { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
+.income-view-fade .income-kpis,
+.income-view-fade .income-payment-grid,
+.income-view-fade .income-ledger-panel { animation: incomeViewFade .3s ease both; }
+@keyframes incomeViewFade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .income-view-fade .income-kpis,
+  .income-view-fade .income-payment-grid,
+  .income-view-fade .income-ledger-panel { animation: none; }
+}
 .section-reset-button {
   border-color: rgba(180, 35, 24, .28);
   background: #fff5f4;
@@ -3817,6 +3826,9 @@ button:disabled {
 }
 .income-range-presets button:hover { border-color: rgba(22, 150, 83, .35); color: #117343; }
 .income-range-presets button.is-active { border-color: #169653; color: #fff; background: #169653; box-shadow: 0 6px 18px rgba(22, 150, 83, .22); }
+.income-range-presets .income-food-toggle { display: inline-flex; align-items: center; justify-content: center; gap: .42rem; margin-left: auto; border-color: rgba(213, 112, 22, .3); color: #9a4c08; background: #fff8ed; }
+.income-range-presets .income-food-toggle:hover { border-color: #d57016; color: #7f3c05; background: #fff1da; }
+.income-range-presets .income-food-toggle.is-active { border-color: #169653; color: #fff; background: #169653; box-shadow: 0 6px 18px rgba(22, 150, 83, .22); }
 
 .income-filter-form {
   display: grid;
@@ -3863,6 +3875,15 @@ button:disabled {
 .income-kpi.is-primary > span svg { color: #8ff0b9; }
 .income-kpi.is-profit { border-color: rgba(22, 150, 83, .24); background: #f3fbf6; }
 .income-kpi.is-profit > strong { color: #117343; }
+.income-section.is-food-view .income-kpi { border-color: rgba(213, 112, 22, .22); background: #fffaf2; }
+.income-section.is-food-view .income-kpi.is-primary { color: #fff; border-color: transparent; background: linear-gradient(135deg, #713409, #d57016); }
+.income-section.is-food-view .income-kpi.is-primary > span,
+.income-section.is-food-view .income-kpi.is-primary > small { color: rgba(255, 255, 255, .82); }
+.income-section.is-food-view .income-kpi.is-primary > span svg { color: #ffd38e; }
+.income-section.is-food-view .income-kpi.is-profit { background: #fff4df; }
+.income-section.is-food-view .income-kpi.is-profit > strong,
+.income-section.is-food-view .income-kpi > span svg { color: #a64f09; }
+.income-section.is-food-view .income-record { border-color: rgba(213, 112, 22, .2); }
 .income-kpi.is-loading span,
 .income-kpi.is-loading strong,
 .income-kpi.is-loading small { min-height: 16px; border-radius: 8px; background: linear-gradient(90deg, #edf0f3 20%, #f7f8f9 40%, #edf0f3 60%); background-size: 200% 100%; animation: incomeShimmer 1.25s infinite; }
@@ -4087,7 +4108,7 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
   border-top: 1px solid rgba(255, 255, 255, .1);
 }
 
-#consumptionDialog { width: min(calc(100vw - 1.5rem), 1020px); max-width: none; }
+#consumptionDialog { width: min(calc(100vw - 1.5rem), 1020px); max-width: none; overflow: hidden; }
 #consumptionDialog .modal-card {
   width: 100%;
   max-width: none;
@@ -4096,7 +4117,7 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
 }
 #consumptionDialog .product-combobox-options { max-height: min(330px, 36dvh); }
 #consumptionDialog .consumption-selection-lines {
@@ -4123,9 +4144,16 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 .table-consumption-preview-head,
 .table-consumption-preview-lines > div { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .table-consumption-preview-head { padding-bottom: .5rem; border-bottom: 1px dashed rgba(18, 24, 31, .16); }
+.table-consumption-preview-title { display: inline-flex; align-items: baseline; gap: .45rem; min-width: 0; }
+.table-consumption-preview-title > small { color: #7a8492; font-size: .68rem; font-weight: 750; white-space: nowrap; }
 .table-consumption-preview-lines { display: grid; gap: .42rem; }
 .table-consumption-preview-lines > div { color: #4f5967; font-size: .79rem; }
+.table-consumption-item { min-width: 0; display: grid; gap: .1rem; }
+.table-consumption-item > span { overflow-wrap: anywhere; }
+.table-consumption-item time { color: #7a8492; font-size: .66rem; font-weight: 650; }
 .table-consumption-preview-lines strong { color: #17191f; white-space: nowrap; }
+.consumption-last-added { display: block; margin-top: .28rem; color: #6b7280; font-size: .72rem; font-weight: 700; }
+.consumption-last-added[hidden] { display: none; }
 
 .consumption-selection { display: grid; gap: .55rem; padding: .8rem; border: 1px solid rgba(47, 209, 124, .28); border-radius: 15px; background: #f0fbf5; }
 .consumption-selection-head,

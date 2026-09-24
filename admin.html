@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="images/los-anos-pwa-192.png" id="appFavicon" type="image/png">
     <link rel="apple-touch-icon" href="images/los-anos-pwa-192.png" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20260924-sales-background-1">
+    <link rel="stylesheet" href="style.css?v=20260924-food-sales-time-2">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -394,6 +394,7 @@
             <button type="button" data-income-range="month">Este mes</button>
             <button type="button" data-income-range="30days">30 días</button>
             <button type="button" data-income-range="year">Este año</button>
+            <button class="income-food-toggle" id="toggleFoodIncome" type="button" aria-pressed="false"><i data-lucide="utensils"></i> <span>Ventas de comidas</span></button>
           </div>
           <form class="income-filter-form" id="incomeFilterForm">
             <label class="income-search">Buscar factura, mesa, producto o responsable
@@ -619,6 +620,7 @@
           <div>
             <span class="eyebrow" id="consumptionEyebrow">Consumo</span>
             <h2 id="consumptionDialogTitle">Agregar a la cuenta</h2>
+            <small class="consumption-last-added" id="consumptionLastAdded" hidden></small>
           </div>
           <button class="icon-btn" type="button" data-cancel-consumption aria-label="Cerrar">
             <i data-lucide="x"></i>
@@ -880,6 +882,6 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20260924-remove-cash-drawer-1"></script>
+    <script src="app.js?v=20260924-food-sales-time-2"></script>
   </body>
 </html>
