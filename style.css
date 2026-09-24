@@ -4018,7 +4018,8 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 .income-kpi-info::after { content: attr(data-tooltip); position: absolute; z-index: 50; right: 0; bottom: calc(100% + .55rem); width: min(235px, 65vw); padding: .62rem .7rem; color: #fff; background: #17191f; border-radius: 10px; box-shadow: 0 12px 30px rgba(18, 24, 31, .22); font-size: .7rem; font-weight: 650; line-height: 1.4; text-align: left; opacity: 0; pointer-events: none; transform: translateY(4px); transition: opacity .08s ease, transform .08s ease; }
 .income-kpi-info:hover::after,
 .income-kpi-info:focus-visible::after { opacity: 1; transform: translateY(0); }
-.income-record-invoice { padding-right: 72px; }
+.income-record-invoice { padding-right: 38px; }
+.income-record-invoice.has-boss-actions { padding-right: 106px; }
 .income-record-invoice .income-record-actions { position: absolute; top: 0; right: 0; display: flex; gap: .28rem; }
 .income-record-invoice .income-record-actions .icon-btn { position: static; width: 30px; height: 30px; }
 .income-record-profit { color: #17191f !important; font-weight: 900; }
@@ -5142,7 +5143,8 @@ body[data-page="admin"] { overflow-x: hidden; }
 .service-tables-panel { grid-area: tables; }
 .service-points-panel { grid-area: points; }
 .walk-in-sale-card { grid-area: walk-in; }
-.income-record-invoice { padding-right: 72px; }
+.income-record-invoice { padding-right: 38px; }
+.income-record-invoice.has-boss-actions { padding-right: 106px; }
 .income-record-invoice .income-record-actions { position: absolute; top: 0; right: 0; display: flex; gap: .28rem; }
 .income-record-invoice .income-record-actions .icon-btn { position: static; width: 30px; height: 30px; }
 .inventory-row-actions { grid-template-columns: minmax(108px, 1fr) 42px 42px; }

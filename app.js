@@ -5317,7 +5317,7 @@ const App = (() => {
           const itemRows = (record.items || []).map((item) => `<li><span>${Number(item.quantity || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })} × ${escapeHTML(item.name)}</span><strong>${money(item.total)}</strong></li>`).join("");
           return `<article class="income-record">
             <div class="income-record-main">
-              <div class="income-record-invoice"><span>${escapeHTML(record.invoice || "Factura")}</span><small>${escapeHTML(formatIncomeDate(record.date))}</small>${isBoss() ? `<div class="income-record-actions" data-boss-only><button class="icon-btn" type="button" data-edit-income="${escapeHTML(record.saleId)}" aria-label="Editar venta">${icon("pencil", 15)}</button><button class="icon-btn danger" type="button" data-delete-income="${escapeHTML(record.saleId)}" aria-label="Eliminar venta completa">${icon("trash-2", 15)}</button></div>` : ""}</div>
+              <div class="income-record-invoice${isBoss() ? " has-boss-actions" : ""}"><span>${escapeHTML(record.invoice || "Factura")}</span><small>${escapeHTML(formatIncomeDate(record.date))}</small><div class="income-record-actions"><button class="icon-btn" type="button" data-print-income="${escapeHTML(record.saleId)}" aria-label="Imprimir factura" title="Imprimir factura">${icon("printer", 15)}</button>${isBoss() ? `<button class="icon-btn" type="button" data-edit-income="${escapeHTML(record.saleId)}" aria-label="Editar venta">${icon("pencil", 15)}</button><button class="icon-btn danger" type="button" data-delete-income="${escapeHTML(record.saleId)}" aria-label="Eliminar venta completa">${icon("trash-2", 15)}</button>` : ""}</div></div>
               <div><small>Mesa / responsable</small><strong>${escapeHTML(record.table || "Mesa")}</strong><span>${escapeHTML(record.payer || "Sin responsable")}</span></div>
               <div><small>Atendido por</small><strong>${escapeHTML(record.waiter || "Sin asignar")}</strong><span>${escapeHTML(record.reference || "Sin referencia")}</span></div>
               <div class="income-record-total"><small>${state.incomeFoodOnly ? "Total comidas" : "Total"}</small><strong>${money(record.total)}</strong><span class="income-record-profit">Ganancia ${money(record.profit)}</span></div>
@@ -6774,6 +6774,9 @@ const App = (() => {
         .totals strong.total { font-size: 17.5px; }
         .paid { padding: 1.5mm; border: 2px solid #000; text-align: center; font-weight: 900; }
         .footer { margin-top: 3mm; text-align: center; }
+        .devnex-credit { display: grid; justify-items: center; gap: 1mm; margin-top: 2.5mm; padding-top: 2.5mm; border-top: 1px dashed #000; text-align: center; font-size: 10px; }
+        .devnex-contact { display: inline-flex; align-items: center; gap: 1mm; }
+        .devnex-contact svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
         @media screen { body { padding: 8mm 4mm; box-shadow: 0 0 22px #bbb; } }
         @media print {
           html { display: block !important; visibility: visible !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
@@ -6809,6 +6812,7 @@ const App = (() => {
         ${isPaid ? `<div class="rule"></div><div class="paid">PAGADO</div><div class="meta" style="margin-top:2mm">${payments.map((payment) => `<span>${escapeHTML(paymentMethodLabel(payment.method))}</span><strong>${money(payment.amount)}</strong>`).join("")}${invoice.paymentMethod === "cash" && Number(invoice.cashReceived || 0) ? `<span>Recibido</span><strong>${money(invoice.cashReceived)}</strong><span>Cambio</span><strong>${money(invoice.changeDue)}</strong>` : ""}${invoice.reference ? `<span>Referencia</span><strong>${escapeHTML(invoice.reference)}</strong>` : ""}</div>` : ""}
         <div class="rule"></div>
         <div class="footer">Gracias por su compra<br><strong>${escapeHTML(businessName)}</strong></div>
+        ${isPaid ? `<div class="devnex-credit"><strong>Devnex Soluciones Tecnologicas - Devnex.tech</strong><span class="devnex-contact"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"></circle></svg>3246394689</span></div>` : ""}
       </body></html>`;
   };
 
@@ -7119,6 +7123,66 @@ const App = (() => {
       return false;
     }
     return printThermalReceipt(receipt.session, receipt.invoice);
+  };
+
+  const printIncomeReceipt = (saleId) => {
+    const record = state.incomeReport?.records?.find((entry) => String(entry.saleId) === String(saleId));
+    if (!record) {
+      toast("No se encontro la venta para imprimir.", "error", `income-receipt-missing:${saleId}`);
+      return false;
+    }
+    const storedInvoice = state.invoiceHistory.find((entry) => String(entry.id || entry.sessionId) === String(record.saleId));
+    const tableName = String(record.table || storedInvoice?.table || "Venta individual").trim() || "Venta individual";
+    const isWalkIn = normalizeText(tableName) === "venta individual";
+    const items = (record.items || []).map((item) => ({
+      id: item.lineId || item.id || "",
+      menu_item_id: item.menuItemId || item.menu_item_id || null,
+      item_name: item.name || item.item_name || "Producto",
+      quantity: Number(item.quantity || 0),
+      unit_price: Number(item.unitPrice ?? item.unit_price ?? 0),
+      status: "confirmed"
+    }));
+    const subtotal = Number(record.subtotal || 0);
+    const discount = Number(record.discount || 0);
+    const tax = Number(record.tax || 0);
+    const serviceFee = Number(record.service || 0);
+    const total = Number(record.total || 0);
+    const baseTotal = Math.max(0, subtotal - discount + tax + serviceFee);
+    const tipAmount = Math.max(0, total - baseTotal);
+    const payments = (record.payments || []).map((payment) => ({
+      method: payment.method,
+      amount: Number(payment.amount || 0)
+    }));
+    const invoice = {
+      id: record.saleId,
+      number: record.invoice || "Factura",
+      sessionId: record.sessionId || storedInvoice?.sessionId || record.saleId,
+      table: tableName,
+      createdAt: record.date,
+      payerName: record.payer || "",
+      waiterName: record.waiter || "",
+      paymentMethod: record.isMixed || payments.length > 1 ? "mixed" : (payments[0]?.method || storedInvoice?.paymentMethod || "cash"),
+      payments,
+      reference: record.reference || "",
+      withTip: tipAmount > 0,
+      tipAmount,
+      tipPercentage: baseTotal > 0 ? Math.round(tipAmount / baseTotal * 10000) / 100 : 0,
+      baseTotal,
+      cashReceived: storedInvoice?.cashReceived ?? null,
+      changeDue: storedInvoice?.changeDue ?? 0,
+      totals: { subtotal, discount, tax, serviceFee, total },
+      items
+    };
+    const session = {
+      id: invoice.sessionId,
+      table_id: isWalkIn ? null : (storedInvoice?.tableId || "income-history"),
+      sale_channel: isWalkIn ? "walk_in" : (storedInvoice?.saleChannel || "table"),
+      payer_name: record.payer || "",
+      assigned_waiter: { full_name: record.waiter || "Equipo" },
+      restaurant_tables: isWalkIn ? null : { table_name: tableName },
+      session_items: items
+    };
+    return printThermalReceipt(session, invoice);
   };
 
   const processPayment = async (form, submitter) => {
@@ -8732,6 +8796,7 @@ const App = (() => {
       }
       if (target.id === "toggleFoodIncome") toggleFoodIncomeView();
       if (target.dataset.incomeRange) setIncomeRange(target.dataset.incomeRange);
+      if (target.dataset.printIncome) printIncomeReceipt(target.dataset.printIncome);
       if (target.dataset.editIncome) openIncomeEdit(target.dataset.editIncome);
       if (target.dataset.deleteIncome) openDeleteIncomeDialog(target.dataset.deleteIncome);
       if (target.dataset.deleteMovement) await deleteInventoryMovement(target.dataset.deleteMovement);
