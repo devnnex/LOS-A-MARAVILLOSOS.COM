@@ -1,5 +1,5 @@
 /**
- * LOS AÑOS MARAVILLOSOS BAR - Inventario e ingresos historicos
+ * LOS AÑOS MARAVILLOSOS BAR - Inventario y ventas historicas
  *
  * Todo se almacena en un unico archivo de Google Sheets.
  * No requiere archivos HTML, puentes, libros auxiliares ni libros anuales.
@@ -7,7 +7,7 @@
  */
 
 var APP = {
-  version: "2.8.0",
+  version: "2.10.0",
   spreadsheetId: "1DEt5o9j2yWqA_IBsT-lleOs6Ky4bn77KgClZVcz_n5A",
   properties: {
     schemaVersion: "TN_SCHEMA_VERSION",
@@ -139,7 +139,14 @@ function apiRequest(payloadText) {
     }
     validateOrigin_(request.origin);
     if (request.action === "status") {
-      return { ok: true, version: APP.version, configured: isConfigured_() };
+      var revisionProperties = PropertiesService.getScriptProperties();
+      return {
+        ok: true,
+        version: APP.version,
+        configured: isConfigured_(),
+        historyRevision: revisionProperties.getProperty("TN_HISTORY_REVISION") || "",
+        movementRevision: revisionProperties.getProperty("TN_MOVEMENT_REVISION") || ""
+      };
     }
     var user = validateSupabaseUser_(request.authToken);
     var payload = request.payload || {};
@@ -150,57 +157,71 @@ function apiRequest(payloadText) {
     var result;
     if (request.action === "get_inventory") result = getInventory_();
     else if (request.action === "get_inventory_movements") {
-      requireAdmin_(user);
+      requireSection_(user, "movements");
       result = getInventoryMovements_(payload.limit, payload.beforeRow);
     }
     else if (request.action === "get_income_report") {
-      requireAdmin_(user);
+      requireSection_(user, "income");
       result = getIncomeReport_(payload.filters || {});
     }
-    else if (request.action === "record_sale") result = recordSale_(payload.invoice, user, request.authToken);
+    else if (request.action === "record_sale") {
+      requireManager_(user);
+      result = recordSale_(payload.invoice, user, request.authToken);
+    }
     else if (request.action === "edit_sale") {
-      requireAdmin_(user);
+      requireBoss_(user);
       result = editSale_(payload.invoice, user, operationId);
     }
     else if (request.action === "delete_sale") {
-      requireAdmin_(user);
+      requireBoss_(user);
       result = deleteSale_(payload.saleId, user);
     }
-    else if (request.action === "adjust_inventory") result = adjustInventory_(payload.adjustment, user);
+    else if (request.action === "adjust_inventory") {
+      requireSection_(user, "inventory");
+      result = adjustInventory_(payload.adjustment, user);
+    }
     else if (request.action === "set_inventory_stock") {
-      requireAdmin_(user);
+      requireSection_(user, "inventory");
       result = setInventoryStock_(payload, user);
     }
     else if (request.action === "delete_inventory") {
-      requireAdmin_(user);
+      requireBoss_(user);
       result = deleteInventory_(payload.productId, user);
     }
     else if (request.action === "clear_inventory") {
-      requireAdmin_(user);
+      requireBoss_(user);
       result = clearInventory_(user, request.authToken);
     }
     else if (request.action === "clear_inventory_movements") {
-      requireAdmin_(user);
+      requireBoss_(user);
       result = clearInventoryMovements_(user);
     }
     else if (request.action === "delete_inventory_movement") {
-      requireAdmin_(user);
+      requireBoss_(user);
       result = deleteInventoryMovement_(payload.movementId, user);
     }
     else if (request.action === "clear_income") {
-      requireAdmin_(user);
+      requireBoss_(user);
       result = clearIncome_(user);
     }
     else if (request.action === "upsert_inventory") {
-      requireAdmin_(user);
+      requireSection_(user, "inventory");
       result = upsertInventory_(payload.item, user);
     } else if (request.action === "sync_inventory") {
-      requireAdmin_(user);
+      requireSection_(user, "inventory");
       result = syncInventory_(payload.items || [], user);
     } else {
       throw new Error("Accion no permitida: " + request.action);
     }
     if (result && result.ok === false) return result;
+    if (["record_sale", "edit_sale", "delete_sale", "clear_income"].indexOf(request.action) >= 0
+        && !result.duplicate && result.deleted !== false) {
+      PropertiesService.getScriptProperties().setProperty("TN_HISTORY_REVISION", String(new Date().getTime()) + "-" + Math.random());
+    }
+    if (["upsert_inventory", "adjust_inventory", "record_sale", "edit_sale", "delete_sale", "delete_inventory_movement", "clear_inventory_movements"].indexOf(request.action) >= 0
+        && !result.duplicate && result.deleted !== false) {
+      PropertiesService.getScriptProperties().setProperty("TN_MOVEMENT_REVISION", String(new Date().getTime()) + "-" + Math.random());
+    }
     result.ok = true;
     if (operationId) recordSyncOperation_(operationId, request.action);
     return result;
@@ -234,7 +255,7 @@ function bootstrapConnection_(payload, origin, authToken) {
     throw new Error("La conexion operativa enviada por el panel esta incompleta.");
   }
   var user = validateSupabaseUserWithConfig_(authToken, candidate);
-  requireAdmin_(user);
+  requireBoss_(user);
   var properties = PropertiesService.getScriptProperties();
   var existingOrigins = String(properties.getProperty(APP.properties.allowedOrigins) || "")
     .split(",").map(function (value) { return value.trim(); }).filter(Boolean);
@@ -365,13 +386,17 @@ function getInventoryMovements_(requestedLimit, requestedBeforeRow) {
   return {
     movements: rows.map(inventoryMovementRowToObject_),
     nextBeforeRow: startRow > 2 ? startRow - 1 : null,
-    hasMore: startRow > 2
+    hasMore: startRow > 2,
+    revision: PropertiesService.getScriptProperties().getProperty("TN_MOVEMENT_REVISION") || ""
   };
 }
 
 function getIncomeReport_(filters) {
   var spreadsheet = getSpreadsheet_();
   var timezone = getTimezone_();
+  var pageRows = Array.isArray(filters.pageRows) ? filters.pageRows.slice(0, 300) : null;
+  var revision = PropertiesService.getScriptProperties().getProperty("TN_HISTORY_REVISION") || "";
+  if (pageRows && String(filters.revision || "") !== revision) return { stale: true, records: [] };
   var today = Utilities.formatDate(new Date(), timezone, "yyyy-MM-dd");
   var dateFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(filters.dateFrom || "")) ? String(filters.dateFrom) : today;
   var dateTo = /^\d{4}-\d{2}-\d{2}$/.test(String(filters.dateTo || "")) ? String(filters.dateTo) : today;
@@ -382,21 +407,36 @@ function getIncomeReport_(filters) {
   }
   var methodFilter = String(filters.paymentMethod || "all").toLowerCase();
   var query = normalizeSearch_(filters.query || "");
-  var salesRows = readSheetRows_(spreadsheet.getSheetByName(APP.sheets.sales), HEADERS.sales.length)
-    .filter(function (row) {
-      var dateKey = dateValueToKey_(row[5], timezone);
-      return row[0] && dateKey >= dateFrom && dateKey <= dateTo;
-    });
-  var selectedSaleIds = Object.create(null);
-  salesRows.forEach(function (row) { selectedSaleIds[String(row[0])] = true; });
-  var paymentRows = salesRows.length ? readSheetRows_(spreadsheet.getSheetByName(APP.sheets.payments), HEADERS.payments.length) : [];
-  var detailRows = salesRows.length ? readSheetRows_(spreadsheet.getSheetByName(APP.sheets.details), HEADERS.details.length) : [];
+  var salesSheet = spreadsheet.getSheetByName(APP.sheets.sales);
+  var salesRows = pageRows ? [] : readSheetRows_(salesSheet, HEADERS.sales.length);
+  if (pageRows) {
+    var validRows = pageRows.map(function (entry) { return Math.floor(asNumber_(entry.row)); })
+      .filter(function (row) { return row >= 2 && row <= salesSheet.getLastRow(); }).sort(function (a, b) { return a - b; });
+    for (var position = 0; position < validRows.length;) {
+      var end = position + 1;
+      while (end < validRows.length && validRows[end] - validRows[end - 1] <= 20 && validRows[end] - validRows[position] < 600) end += 1;
+      var block = salesSheet.getRange(validRows[position], 1, validRows[end - 1] - validRows[position] + 1, HEADERS.sales.length).getValues();
+      for (var entryIndex = position; entryIndex < end; entryIndex += 1) {
+        salesRows.push({ row: block[validRows[entryIndex] - validRows[position]], sheetRow: validRows[entryIndex] });
+      }
+      position = end;
+    }
+  } else {
+    salesRows = salesRows.map(function (row, index) { return { row: row, sheetRow: index + 2 }; });
+  }
+  var paymentRows = readSheetRows_(spreadsheet.getSheetByName(APP.sheets.payments), HEADERS.payments.length);
+  var detailRows = readSheetRows_(spreadsheet.getSheetByName(APP.sheets.details), HEADERS.details.length);
   var paymentsBySale = {};
   var detailsBySale = {};
+  var selectedSales = null;
+  if (pageRows) {
+    selectedSales = {};
+    pageRows.forEach(function (entry) { selectedSales[String(entry.saleId || "")] = true; });
+  }
 
   paymentRows.forEach(function (row) {
     var saleId = String(row[0] || "");
-    if (!selectedSaleIds[saleId]) return;
+    if (!saleId || selectedSales && !selectedSales[saleId]) return;
     if (!paymentsBySale[saleId]) paymentsBySale[saleId] = [];
     paymentsBySale[saleId].push({
       method: String(row[2] || "").toLowerCase(),
@@ -407,7 +447,7 @@ function getIncomeReport_(filters) {
 
   detailRows.forEach(function (row) {
     var saleId = String(row[0] || "");
-    if (!selectedSaleIds[saleId]) return;
+    if (!saleId || selectedSales && !selectedSales[saleId]) return;
     if (!detailsBySale[saleId]) detailsBySale[saleId] = [];
     detailsBySale[saleId].push({
       lineId: String(row[2] || ""),
@@ -437,8 +477,12 @@ function getIncomeReport_(filters) {
   };
   var records = [];
 
-  salesRows.forEach(function (row) {
+  salesRows.forEach(function (entry) {
+    var row = entry.row;
     var saleId = String(row[0] || "");
+    if (!saleId) return;
+    var dateKey = dateValueToKey_(row[5], timezone);
+    if (!dateKey || dateKey < dateFrom || dateKey > dateTo) return;
     var total = asNumber_(row[12]);
     var payments = paymentsBySale[saleId] || [];
     if (!payments.length && row[13]) payments = [{ method: String(row[13]).toLowerCase(), amount: total, reference: String(row[14] || "") }];
@@ -446,14 +490,12 @@ function getIncomeReport_(filters) {
     if (methodFilter === "mixed" && !isMixed) return;
     if (methodFilter !== "all" && methodFilter !== "mixed" && !payments.some(function (payment) { return payment.method === methodFilter; })) return;
     var items = detailsBySale[saleId] || [];
-    if (query) {
-      var searchText = normalizeSearch_([
-        saleId, row[1], row[4], row[6], row[7], row[13], row[14],
-        payments.map(function (payment) { return payment.method + " " + payment.reference; }).join(" "),
-        items.map(function (item) { return item.name; }).join(" ")
-      ].join(" "));
-      if (searchText.indexOf(query) < 0) return;
-    }
+    var searchText = normalizeSearch_([
+      saleId, row[1], row[4], row[6], row[7], row[13], row[14],
+      payments.map(function (payment) { return payment.method + " " + payment.reference; }).join(" "),
+      items.map(function (item) { return item.name; }).join(" ")
+    ].join(" "));
+    if (query && searchText.indexOf(query) < 0) return;
     var cost = items.reduce(function (sum, item) { return sum + asNumber_(item.cost); }, 0);
     var record = {
       saleId: saleId,
@@ -475,6 +517,7 @@ function getIncomeReport_(filters) {
       payments: payments,
       items: items
     };
+    record.sheetRow = entry.sheetRow;
     records.push(record);
     totals.income += total;
     totals.sales += 1;
@@ -492,32 +535,30 @@ function getIncomeReport_(filters) {
     });
   });
 
-  records.sort(function (left, right) {
-    return String(right.date).localeCompare(String(left.date)) || String(right.saleId).localeCompare(String(left.saleId));
-  });
+  records.sort(function (left, right) { return String(right.date).localeCompare(String(left.date)) || String(right.saleId).localeCompare(String(left.saleId)); });
+  if ((PropertiesService.getScriptProperties().getProperty("TN_HISTORY_REVISION") || "") !== revision) return { stale: true, records: [] };
+  if (pageRows) {
+    var expectedIds = {};
+    pageRows.forEach(function (entry) { expectedIds[entry.row] = String(entry.saleId || ""); });
+    if (records.length !== pageRows.length || records.some(function (record) { return expectedIds[record.sheetRow] !== record.saleId; })) {
+      return { stale: true, records: [] };
+    }
+    records.forEach(function (record) { delete record.sheetRow; });
+    return { records: records, generatedAt: new Date().toISOString() };
+  }
   totals.averageTicket = totals.sales ? totals.income / totals.sales : 0;
   var totalRecords = records.length;
   var limit = Math.min(500, Math.max(50, asNumber_(filters.limit) || 300));
-  var cursor = filters.cursor || {};
-  var cursorDate = String(cursor.date || "");
-  var cursorSaleId = String(cursor.saleId || "");
-  var remaining = cursorDate && cursorSaleId ? records.filter(function (record) {
-    var dateOrder = String(record.date).localeCompare(cursorDate);
-    return dateOrder < 0 || (dateOrder === 0 && String(record.saleId).localeCompare(cursorSaleId) < 0);
-  }) : records;
-  var page = remaining.slice(0, limit);
-  var hasMore = remaining.length > limit;
-  var lastRecord = page[page.length - 1];
+  var recordRows = records.map(function (record) { return { row: record.sheetRow, saleId: record.saleId }; });
+  records.forEach(function (record) { delete record.sheetRow; });
   return {
     filters: { dateFrom: dateFrom, dateTo: dateTo, paymentMethod: methodFilter, query: String(filters.query || "") },
     totals: totals,
-    records: page,
-    recordKeys: cursorDate ? [] : records.map(function (record) { return record.saleId; }),
-    sessionKeys: cursorDate ? [] : records.map(function (record) { return record.sessionId; }).filter(Boolean),
+    records: records.slice(0, limit),
+    recordRows: recordRows,
+    revision: revision,
     totalRecords: totalRecords,
-    truncated: hasMore,
-    hasMore: hasMore,
-    nextCursor: hasMore && lastRecord ? { date: lastRecord.date, saleId: lastRecord.saleId } : null,
+    truncated: totalRecords > limit,
     generatedAt: new Date().toISOString()
   };
 }
@@ -810,7 +851,7 @@ function clearIncome_(user) {
     writeDataRows_(spreadsheet.getSheetByName(APP.sheets.details), [], HEADERS.details.length);
     writeDataRows_(spreadsheet.getSheetByName(APP.sheets.payments), [], HEADERS.payments.length);
     writeDataRows_(spreadsheet.getSheetByName(APP.sheets.daily), [], HEADERS.daily.length);
-    appendAudit_("INCOME_CLEAR_ALL", String(deleted), user.full_name || user.username, "OK", "Ingresos reiniciados desde el panel sin modificar existencias.");
+    appendAudit_("INCOME_CLEAR_ALL", String(deleted), user.full_name || user.username, "OK", "Ventas reiniciadas desde el panel sin modificar existencias.");
     return { cleared: true, deleted: deleted };
   });
 }
@@ -1309,7 +1350,22 @@ function validateSupabaseUserWithConfig_(authToken, config) {
 }
 
 function requireAdmin_(user) {
-  if (!user || user.role !== "admin") throw new Error("Esta operacion requiere un administrador.");
+  requireManager_(user);
+}
+
+function requireManager_(user) {
+  if (!user || ["boss", "admin"].indexOf(String(user.role || "")) < 0) throw new Error("Esta operacion requiere un Jefe o Administrador.");
+}
+
+function requireBoss_(user) {
+  if (!user || user.role !== "boss") throw new Error("Esta operacion es exclusiva del Jefe.");
+}
+
+function requireSection_(user, section) {
+  requireManager_(user);
+  if (user.role === "boss") return;
+  if (!Array.isArray(user.permissions)) return;
+  if (user.permissions.indexOf(section) < 0) throw new Error("No tienes acceso a esta seccion.");
 }
 
 function getConfig_() {

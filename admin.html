@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="images/los-anos-pwa-192.png" id="appFavicon" type="image/png">
     <link rel="apple-touch-icon" href="images/los-anos-pwa-192.png" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20260922-login-blue-1">
+    <link rel="stylesheet" href="style.css?v=20260924-sales-background-1">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -54,7 +54,7 @@
         <a href="#tips" class="tips-nav-link" data-tip-feature hidden><i data-lucide="hand-coins"></i> Propinas</a>
         <a href="#inventory" data-admin-only><i data-lucide="boxes"></i> Inventario</a>
         <a href="#movements" data-admin-only><i data-lucide="arrow-left-right"></i> Movimientos</a>
-        <a href="#income" data-admin-only><i data-lucide="circle-dollar-sign"></i> Ingresos</a>
+        <a href="#income" data-admin-only><i data-lucide="circle-dollar-sign"></i> Ventas</a>
         <a href="#assistant" data-admin-only><i data-lucide="sparkles"></i> Asistente IA</a>
         <a href="#menu" data-admin-only><i data-lucide="layout-grid"></i> Mesas</a>
         <a href="#users" data-admin-only><i data-lucide="users"></i> Usuarios</a>
@@ -86,7 +86,6 @@
         </div>
         <div class="admin-header-actions">
           <a class="primary" href="index.html"><i data-lucide="external-link"></i> Ver cliente</a>
-          <button class="ghost" id="openCashDrawer" type="button"><i data-lucide="archive-restore"></i> Abrir caja</button>
         </div>
       </header>
 
@@ -300,7 +299,7 @@
           <div class="inventory-heading-actions">
             <span class="inventory-sync-status is-local" id="inventorySyncStatus"><i data-lucide="hard-drive"></i> Respaldo local</span>
             <button class="primary" id="newInventoryProduct" type="button"><i data-lucide="package-plus"></i> Nuevo producto</button>
-            <button class="ghost danger-text section-reset-button" type="button" data-reset-section="inventory"><i data-lucide="trash-2"></i> Eliminar todo</button>
+            <button class="ghost danger-text section-reset-button" type="button" data-reset-section="inventory" data-boss-only><i data-lucide="trash-2"></i> Eliminar todo</button>
           </div>
         </div>
 
@@ -349,7 +348,7 @@
           </div>
           <div class="inventory-heading-actions">
             <button class="primary" id="refreshInventoryMovements" type="button"><i data-lucide="refresh-cw"></i> Actualizar</button>
-            <button class="ghost danger-text section-reset-button" type="button" data-reset-section="movements"><i data-lucide="trash-2"></i> Eliminar todo</button>
+            <button class="ghost danger-text section-reset-button" type="button" data-reset-section="movements" data-boss-only><i data-lucide="trash-2"></i> Eliminar todo</button>
           </div>
         </div>
         <div class="movement-summary" id="movementSummary"></div>
@@ -376,13 +375,13 @@
         <div class="section-head income-heading">
           <div>
             <span class="eyebrow">Contabilidad inteligente</span>
-            <h2>Ingresos y ventas cerradas</h2>
+            <h2>Ventas cerradas</h2>
             <p>Analiza lo facturado, la utilidad estimada y la distribución por medios de pago.</p>
           </div>
           <div class="income-heading-actions">
             <button class="ghost" id="exportIncomeCsv" type="button"><i data-lucide="file-down"></i> Exportar</button>
             <button class="primary" id="refreshIncomeReport" type="button"><i data-lucide="refresh-cw"></i> Actualizar</button>
-            <button class="ghost danger-text section-reset-button" type="button" data-reset-section="income"><i data-lucide="trash-2"></i> Eliminar todo</button>
+            <button class="ghost danger-text section-reset-button" type="button" data-reset-section="income" data-boss-only><i data-lucide="trash-2"></i> Eliminar todo</button>
           </div>
         </div>
 
@@ -424,7 +423,7 @@
           <div class="section-head income-results-head">
             <div>
               <span class="eyebrow">Movimientos facturados</span>
-              <h2>Detalle de ingresos</h2>
+              <h2>Detalle de ventas</h2>
             </div>
             <span class="income-report-status" id="incomeReportStatus"><i data-lucide="loader-circle"></i> Preparando informe</span>
           </div>
@@ -478,7 +477,7 @@
           </div>
         </div>
         <div class="service-sales-layout">
-          <article class="service-points-panel">
+          <article class="service-points-panel" data-manager-only>
             <div class="service-points-head">
               <div class="service-block-title"><span><i data-lucide="wine"></i></span><div><strong>Puntos sin QR</strong><small>Atiéndelos igual que una mesa y reconoce de dónde viene cada cuenta.</small></div></div>
               <div class="service-zone-tabs" role="tablist" aria-label="Elegir zona">
@@ -508,7 +507,7 @@
             </div>
             <div class="compact-tables-grid" id="waiterTablesGrid"></div>
           </article>
-          <article class="walk-in-sale-card">
+          <article class="walk-in-sale-card" data-manager-only>
             <span class="walk-in-icon"><i data-lucide="shopping-bag"></i></span>
             <div><span class="eyebrow">Venta rápida</span><h3>Cliente individual</h3><p>Para una compra que no ocupa mesa, barra ni matera.</p></div>
             <button class="primary" id="newWalkInSale" type="button"><i data-lucide="plus"></i> Nueva venta individual</button>
@@ -545,15 +544,68 @@
           <div class="user-form-fields">
             <label class="user-field user-field-name"><span><i data-lucide="contact"></i> Nombre completo</span><input name="full_name" type="text" autocomplete="name" placeholder="Nombre del integrante" required></label>
             <label class="user-field user-field-username"><span><i data-lucide="at-sign"></i> Usuario</span><input name="username" type="text" autocomplete="off" placeholder="Ej. mesero.juan" required></label>
-            <label class="user-field user-field-pin"><span><i data-lucide="key-round"></i> PIN</span><input name="pin" type="password" inputmode="numeric" minlength="4" maxlength="12" pattern="[0-9]{4,12}" autocomplete="new-password" placeholder="4 a 12 dígitos"></label>
-            <label class="user-field user-field-role"><span><i data-lucide="shield-check"></i> Rol</span><select name="role"><option value="waiter">Mesero</option><option value="admin">Administrador</option></select></label>
+            <label class="user-field user-field-pin"><span><i data-lucide="key-round"></i> PIN</span><span class="user-pin-control"><input name="pin" type="password" inputmode="numeric" minlength="4" maxlength="12" pattern="[0-9]{4,12}" autocomplete="new-password" placeholder="4 a 12 dígitos"><button class="icon-btn user-pin-toggle" type="button" data-toggle-user-pin aria-label="Mostrar PIN" title="Mostrar PIN"><i data-lucide="eye-off"></i></button></span></label>
+            <label class="user-field user-field-role"><span><i data-lucide="shield-check"></i> Rol</span><select name="role"><option value="waiter">Mesero</option><option value="admin">Administrador</option><option value="boss">Jefe</option></select></label>
           </div>
+          <fieldset class="user-permissions" id="userPermissions" hidden>
+            <legend>Secciones disponibles para este administrador</legend>
+            <p>El Jefe puede habilitar o quitar cada acceso. El Administrador nunca podrá eliminar registros ni modificar ventas cerradas.</p>
+            <div class="user-permissions-grid">
+              <label><input type="checkbox" name="permissions" value="dashboard"> Inicio</label>
+              <label><input type="checkbox" name="permissions" value="service"> Atender mesa</label>
+              <label><input type="checkbox" name="permissions" value="accounts"> Cuentas</label>
+              <label><input type="checkbox" name="permissions" value="tips"> Propinas</label>
+              <label><input type="checkbox" name="permissions" value="inventory"> Inventario</label>
+              <label><input type="checkbox" name="permissions" value="movements"> Movimientos</label>
+              <label><input type="checkbox" name="permissions" value="income"> Ventas</label>
+              <label><input type="checkbox" name="permissions" value="assistant"> Asistente IA</label>
+              <label><input type="checkbox" name="permissions" value="menu"> Mesas</label>
+              <label><input type="checkbox" name="permissions" value="brand"> Marca</label>
+            </div>
+          </fieldset>
           <div class="user-form-footer">
             <div class="check user-active-check"><input name="is_active" type="checkbox" checked aria-label="Usuario activo"><span>Activo al guardar</span></div>
             <button class="primary user-save-button" type="submit"><i data-lucide="user-plus"></i> <span>Guardar usuario</span></button>
           </div>
         </form>
         <div class="users-list" id="usersList"></div>
+        <aside class="role-guide" data-boss-only role="note" aria-labelledby="roleGuideTitle">
+          <div class="role-guide-heading">
+            <span class="role-guide-icon"><i data-lucide="badge-help"></i></span>
+            <div>
+              <span class="eyebrow">Guía fácil</span>
+              <h3 id="roleGuideTitle">¿Qué puede hacer cada rol?</h3>
+              <p>Elige el rol según lo que la persona necesita hacer en el sistema.</p>
+            </div>
+          </div>
+          <div class="role-guide-grid">
+            <article class="role-guide-card is-boss">
+              <span class="role-guide-role"><i data-lucide="crown"></i> Jefe</span>
+              <strong>Puede hacer todo.</strong>
+              <p>Ve todas las secciones, administra usuarios y es la única persona que puede eliminar información o modificar ventas cerradas.</p>
+            </article>
+            <article class="role-guide-card is-admin">
+              <span class="role-guide-role"><i data-lucide="shield-check"></i> Administrador</span>
+              <strong>Usa solo las secciones que tú elijas.</strong>
+              <p>Puede trabajar normalmente en esas secciones, pero nunca puede eliminar información ni modificar ventas cerradas.</p>
+            </article>
+            <article class="role-guide-card is-waiter">
+              <span class="role-guide-role"><i data-lucide="user-round"></i> Mesero</span>
+              <strong>Solo atiende mesas.</strong>
+              <p>Puede agregar consumos, cambiar el producto o el precio de la selección y confirmarla. No puede cobrar, cerrar ni eliminar.</p>
+            </article>
+          </div>
+          <div class="role-guide-steps">
+            <strong><i data-lucide="pencil"></i> Para cambiar un permiso:</strong>
+            <ol>
+              <li>Presiona el lápiz del usuario.</li>
+              <li>Elige su rol.</li>
+              <li>Si eliges Administrador, marca las secciones que podrá usar.</li>
+              <li>Presiona <b>Guardar cambios</b>.</li>
+            </ol>
+            <p><i data-lucide="toggle-right"></i> El botón <b>Acceso</b> permite o impide que esa persona inicie sesión.</p>
+          </div>
+        </aside>
       </section>
     </main>
 
@@ -828,6 +880,6 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20260922-pwa-icon-1"></script>
+    <script src="app.js?v=20260924-remove-cash-drawer-1"></script>
   </body>
 </html>

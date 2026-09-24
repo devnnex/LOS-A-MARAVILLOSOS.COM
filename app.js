@@ -10,9 +10,9 @@ try { SUPABASE_CONFIG.url = new URL(String(SUPABASE_CONFIG.url || "").trim()).or
 
 const APPS_SCRIPT_CONFIG = {
   // Tambien puede configurarse desde Inventario > Respaldo remoto del negocio.
-  webAppUrl: "https://script.google.com/macros/s/AKfycbwJiieFJ1OoR0TCU45yesBFxvPydXexG3Na1dnveblcsJQ-rWgY7WevMp8BDaagnzkc/exec"
+  webAppUrl: "https://script.google.com/macros/s/AKfycbxkPZmhuw2OgFNE5Hn9FmRzXV5pmVQhu41_dlhBPxalQY1xxZn9Lp7AvhE7FdTa9G0k/exec"
 };
-const APPS_SCRIPT_REQUIRED_VERSION = "2.8.0";
+const APPS_SCRIPT_REQUIRED_VERSION = "2.10.0";
 const APPS_SCRIPT_TIMEOUT_MS = 45000;
 
 const isAppsScriptVersionCompatible = (version) => {
@@ -119,6 +119,8 @@ const App = (() => {
   const TIP_SPLIT_STORAGE_KEY = "tienda_napoles_tip_split_people_v1";
   const TIP_RESET_STORAGE_KEY = "tienda_napoles_tip_reset_invoices_v1";
   const USER_LIST_CACHE_KEY = "tienda_napoles_users_v1";
+  const USER_CREDENTIALS_CACHE_KEY = "los_anos_maravillosos_user_credentials_v1";
+  const ADMIN_SECTION_KEYS = ["dashboard", "service", "accounts", "tips", "inventory", "movements", "income", "assistant", "menu", "brand"];
   const PWA_BRAND_CACHE = "tienda-napoles-pwa-brand-v1";
   const CATEGORY_PRESETS = ["Snack", "Bebidas", "Medicina", "Otros"];
   const REQUEST_IMAGES = {
@@ -295,8 +297,12 @@ const App = (() => {
     authToken: "",
     currentUser: null,
     users: [],
+    userCredentialPins: {},
     inventoryMeta: {},
     inventoryMovements: [],
+    movementLoading: false,
+    movementLoaded: false,
+    movementRevision: null,
     movementRequestId: 0,
     movementNextBeforeRow: null,
     movementLoadingMore: false,
@@ -307,6 +313,9 @@ const App = (() => {
     inventoryStatusFilter: "all",
     inventoryCategoryFilter: "all",
     incomeReport: null,
+    incomeFetchedAt: 0,
+    incomeRevision: null,
+    incomeAppliedRange: null,
     incomeLoading: false,
     incomeLoadingMore: false,
     incomeRequestId: 0,
@@ -355,6 +364,8 @@ const App = (() => {
     alarmStopTimer: null,
     adminPollTimer: null,
     adminSyncBusy: false,
+    backgroundReportSyncBusy: false,
+    backgroundReportCheckedAt: 0,
     activeAdminSection: "dashboard",
     dashboardTableZoneFilter: "all",
     dashboardTableSearch: "",
@@ -577,7 +588,7 @@ const App = (() => {
   };
 
   const ensurePresetCategories = async () => {
-    if (state.currentUser?.role !== "admin") return;
+    if (!canAccessAdminSection("menu") && !canAccessAdminSection("inventory")) return;
     const existing = new Set(state.categories.map((category) => normalizeText(category.name)));
     const missing = CATEGORY_PRESETS.filter((name) => !existing.has(normalizeText(name)));
     if (!missing.length) return;
@@ -717,9 +728,30 @@ const App = (() => {
     refreshIcons();
   };
 
+  const isBoss = (user = state.currentUser) => user?.role === "boss";
+  const isWaiter = (user = state.currentUser) => user?.role === "waiter";
+  const roleLabel = (role) => ({ boss: "Jefe", admin: "Administrador", waiter: "Mesero" }[role] || "Usuario");
+  const normalizedUserPermissions = (user = state.currentUser) => {
+    if (isBoss(user)) return [...ADMIN_SECTION_KEYS, "users"];
+    if (isWaiter(user)) return ["service"];
+    if (Array.isArray(user?.permissions)) return [...new Set(user.permissions.filter((section) => ADMIN_SECTION_KEYS.includes(section)))];
+    return [...ADMIN_SECTION_KEYS];
+  };
+  const canAccessAdminSection = (section, user = state.currentUser) => normalizedUserPermissions(user).includes(section);
+  const firstAllowedAdminSection = (user = state.currentUser) => normalizedUserPermissions(user)[0] || "service";
+  const canDeleteRecords = () => isBoss();
+
+  const syncAdminSectionAccess = () => {
+    $$(".admin-sidebar nav a").forEach((link) => {
+      const section = link.getAttribute("href")?.replace("#", "") || "";
+      link.hidden = !canAccessAdminSection(section);
+    });
+  };
+
   const showAdminSection = (section = "dashboard") => {
-    if (section === "tips" && !tipsEnabled()) section = state.currentUser?.role === "waiter" ? "service" : "accounts";
-    if (state.currentUser?.role === "waiter" && !["service", "accounts", "tips"].includes(section)) section = "service";
+    syncAdminSectionAccess();
+    if (section === "tips" && !tipsEnabled()) section = canAccessAdminSection("accounts") ? "accounts" : firstAllowedAdminSection();
+    if (!canAccessAdminSection(section)) section = firstAllowedAdminSection();
     state.activeAdminSection = section;
     $$("[data-admin-section]").forEach((el) => {
       el.classList.toggle("section-active", el.dataset.adminSection === section);
@@ -731,13 +763,6 @@ const App = (() => {
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
-    if (section === "movements" && navigator.onLine && isAppsScriptConfigured()) {
-      const list = $("#inventoryMovementList");
-      const summary = $("#movementSummary");
-      if (list) list.innerHTML = emptyState("Actualizando movimientos", "Consultando el historial oficial...", "refresh-cw");
-      if (summary) summary.innerHTML = "";
-      refreshIcons();
-    }
     const switchToken = ++state.sectionSwitchToken;
     window.cancelAnimationFrame(state.sectionRenderFrame);
     window.clearTimeout(state.sectionRenderTimer);
@@ -758,12 +783,20 @@ const App = (() => {
         }
         if (section === "inventory") renderInventory();
         if (section === "movements") {
-          if (!navigator.onLine || !isAppsScriptConfigured()) renderInventoryMovements();
-          void loadInventoryMovements();
+          renderInventoryMovements();
+          if (!state.movementLoading && !state.movementLoaded) void loadInventoryMovements();
         }
         if (section === "income") {
           initializeIncomeFilters();
-          if (!state.incomeLoading || state.incomeRequestKey !== JSON.stringify(incomeFiltersFromForm())) void loadIncomeReport();
+          if (state.incomeRangePreset !== "custom") {
+            const currentRange = incomeRangeDates(state.incomeRangePreset);
+            if (currentRange.dateFrom !== state.incomeAppliedRange?.dateFrom || currentRange.dateTo !== state.incomeAppliedRange?.dateTo) {
+              setIncomeRange(state.incomeRangePreset, false);
+              state.incomeReport = null;
+            }
+          }
+          renderIncomeReport();
+          if (!state.incomeLoading && !state.incomeReport) void loadIncomeReport();
         }
         if (section === "users") renderUsers();
         if (section === "assistant") renderAdminAi();
@@ -1869,27 +1902,6 @@ const App = (() => {
     mixed: "Pago mixto"
   }[method] || "Pago");
 
-  const openCashDrawer = async () => {
-    const bridge = window.posCashDrawer;
-    const status = $("#cashDrawerStatus");
-    if (!bridge || typeof bridge.open !== "function") {
-      if (status) status.textContent = "No se detecto un puente local compatible con el cajon.";
-      toast("El cajón no está configurado en este equipo. Revisa la conexión del cajón con el punto de venta.", "error", "cash-drawer-unavailable");
-      return false;
-    }
-    try {
-      const result = await bridge.open({ source: "tienda-napoles-pos", requestedAt: new Date().toISOString() });
-      if (result === false) throw new Error("El controlador rechazo la apertura.");
-      if (status) status.textContent = "Orden de apertura enviada correctamente.";
-      toast("Orden de apertura enviada al cajon.", "ok", "cash-drawer-opened");
-      return true;
-    } catch (error) {
-      if (status) status.textContent = "El controlador no pudo abrir el cajon.";
-      toast(String(error?.message || "No se pudo abrir el cajon."), "error", "cash-drawer-failed");
-      return false;
-    }
-  };
-
   const getAppsScriptUrl = () => String(APPS_SCRIPT_CONFIG.webAppUrl || "").trim();
 
   const isAppsScriptConfigured = () => /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec(?:[?#].*)?$/i.test(getAppsScriptUrl());
@@ -1944,6 +1956,9 @@ const App = (() => {
       let result;
       try { result = JSON.parse(text); } catch (error) {
         throw transientAppsScriptError("La respuesta del respaldo remoto todavía se está confirmando.");
+      }
+      if (result?.ok && ["upsert_inventory", "adjust_inventory", "record_sale", "edit_sale", "delete_sale", "delete_inventory_movement", "clear_inventory_movements", "clear_income"].includes(action)) {
+        window.setTimeout(() => void refreshBackgroundReports({ force: true }), 0);
       }
       return result || { ok: false, error: "Respuesta vacia del respaldo remoto." };
     } catch (error) {
@@ -2099,10 +2114,10 @@ const App = (() => {
 
   const bootstrapRemoteStorage = async () => {
     if (!isAppsScriptConfigured() || !state.currentUser) return false;
-    if (state.currentUser.role !== "admin") {
+    if (!isBoss()) {
       void (async () => {
-        await flushAppsScriptOutbox();
-        if (!readAppsScriptOutbox().length) await syncInventoryWithAppsScript();
+        await syncInventoryWithAppsScript();
+        if (!isWaiter()) await flushAppsScriptOutbox();
       })();
       return true;
     }
@@ -3522,6 +3537,7 @@ const App = (() => {
     try {
       const changed = await loadAdminData();
       if (changed) renderAdminLive();
+      void refreshBackgroundReports();
       return changed;
     } finally {
       state.adminSyncBusy = false;
@@ -3802,7 +3818,7 @@ const App = (() => {
           ${icon(state.activeServiceZone === "bar" ? "wine" : "flower-2", 22)}
           <span><strong>${escapeHTML(tableLabel(table))}</strong><small>${occupied ? money(sessionTotal(session)) : "Libre"}</small></span>
         </button>
-        ${state.currentUser?.role === "admin" ? `<button class="icon-btn danger" type="button" data-delete-service-point="${escapeHTML(table.id)}" aria-label="Eliminar ${escapeHTML(tableLabel(table))}">${icon("trash-2", 15)}</button>` : ""}
+        ${isBoss() ? `<button class="icon-btn danger" type="button" data-delete-service-point="${escapeHTML(table.id)}" data-boss-only aria-label="Eliminar ${escapeHTML(tableLabel(table))}">${icon("trash-2", 15)}</button>` : ""}
       </article>`;
     }).join("") : emptyState(`Sin ${kindLabel}s`, `Agrega un puesto de ${kindLabel} para atender clientes aquí.`, state.activeServiceZone === "bar" ? "wine" : "flower-2");
     const addButton = $("#addServicePoint");
@@ -3811,7 +3827,7 @@ const App = (() => {
   };
 
   const addServicePoint = () => {
-    if (state.currentUser?.role !== "admin") return;
+    if (isWaiter() || !canAccessAdminSection("service")) return;
     const kind = state.activeServiceZone;
     const sameKind = state.tables.filter((table) => servicePointKind(table) === kind);
     const sequence = sameKind.reduce((largest, table) => {
@@ -3964,7 +3980,7 @@ const App = (() => {
                   <button class="icon-btn" data-edit-table="${table.id}" title="Editar" aria-label="Editar mesa">${icon("pencil", 17)}</button>
                   <button class="icon-btn" data-download-qr="${table.id}" title="Descargar" aria-label="Descargar QR en PDF de 9 por 9 centimetros">${icon("file-down", 17)}</button>
                   <button class="icon-btn" data-regenerate-qr="${table.id}" title="Regenerar" aria-label="Rehacer QR">${icon("refresh-cw", 17)}</button>
-                  <button class="icon-btn danger" data-delete-table="${table.id}" title="Eliminar" aria-label="Eliminar mesa">${icon("trash-2", 17)}</button>
+                  <button class="icon-btn danger" data-delete-table="${table.id}" data-boss-only title="Eliminar" aria-label="Eliminar mesa">${icon("trash-2", 17)}</button>
                 </div>
               </div>
             `
@@ -4281,7 +4297,7 @@ const App = (() => {
                   </div>
                   <div class="row-actions">
                     <button class="icon-btn" data-edit-category="${category.id}" aria-label="Editar categoria">${icon("pencil", 17)}</button>
-                    <button class="icon-btn danger" data-delete-category="${category.id}" aria-label="Eliminar categoria">${icon("trash-2", 17)}</button>
+                    <button class="icon-btn danger" data-delete-category="${category.id}" data-boss-only aria-label="Eliminar categoria">${icon("trash-2", 17)}</button>
                   </div>
                 </div>
               `
@@ -4315,7 +4331,7 @@ const App = (() => {
                   <strong class="product-price">${money(item.price)}</strong>
                   <div class="row-actions">
                     <button class="icon-btn" data-edit-item="${item.id}" aria-label="Editar producto">${icon("pencil", 17)}</button>
-                    <button class="icon-btn danger" data-delete-item="${item.id}" aria-label="Eliminar producto">${icon("trash-2", 17)}</button>
+                    <button class="icon-btn danger" data-delete-item="${item.id}" data-boss-only aria-label="Eliminar producto">${icon("trash-2", 17)}</button>
                   </div>
                 </div>
               `
@@ -4418,7 +4434,7 @@ const App = (() => {
               <div class="inventory-row-actions">
                 <button class="ghost small inventory-adjust-trigger" type="button" data-inventory-adjust="${escapeHTML(item.id)}">${icon("package-plus", 16)} Unidades</button>
                 <button class="icon-btn" type="button" data-edit-inventory="${escapeHTML(item.id)}" aria-label="Editar ${escapeHTML(item.name)}">${icon("pencil", 17)}</button>
-                <button class="icon-btn danger" type="button" data-delete-item="${escapeHTML(item.id)}" aria-label="Eliminar ${escapeHTML(item.name)}">${icon("trash-2", 17)}</button>
+                <button class="icon-btn danger" type="button" data-delete-item="${escapeHTML(item.id)}" data-boss-only aria-label="Eliminar ${escapeHTML(item.name)}">${icon("trash-2", 17)}</button>
               </div>
             </article>`;
         }).join("")
@@ -4433,6 +4449,14 @@ const App = (() => {
     const list = $("#inventoryMovementList");
     const summary = $("#movementSummary");
     if (!list || !summary) return;
+    if (state.movementLoading && !state.movementLoaded && !state.inventoryMovements.length) {
+      summary.innerHTML = "";
+      list.innerHTML = emptyState("Actualizando movimientos", "Consultando el historial oficial...", "refresh-cw");
+      const more = $("#loadMoreMovements");
+      if (more) more.hidden = true;
+      refreshIcons();
+      return;
+    }
     const query = normalizeText(state.movementSearch);
     const movements = [...state.inventoryMovements]
       .filter((movement) => state.movementTypeFilter === "all" || movementKind(movement) === state.movementTypeFilter)
@@ -4446,7 +4470,7 @@ const App = (() => {
     const markup = visibleRows.length ? visibleRows.map((movement) => {
       const delta = Number(movement.delta ?? movement.quantityChange ?? 0);
       const kind = delta >= 0 ? "entry" : "exit";
-      return `<article class="movement-row ${kind}"><span class="movement-direction">${icon(kind === "entry" ? "arrow-down-left" : "arrow-up-right", 20)}</span><div class="movement-product"><strong>${escapeHTML(movement.product || "Producto")}</strong><small>${escapeHTML(movement.code || "")}${movement.reference ? ` · ${escapeHTML(movement.reference)}` : ""}</small></div><div><small>Movimiento</small><strong>${escapeHTML(String(movement.type || (kind === "entry" ? "ENTRADA" : "SALIDA")).replaceAll("_", " "))}</strong></div><div><small>Existencia</small><strong>${Number(movement.before || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })} → ${Number(movement.after || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></div><strong class="movement-delta">${delta > 0 ? "+" : ""}${delta.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong><div class="movement-audit"><span><strong>${escapeHTML(movement.user || "Sistema")}</strong><small>${escapeHTML(prettyDateTime(movement.date))}</small></span><button class="icon-btn danger" type="button" data-delete-movement="${escapeHTML(movement.movementId)}" aria-label="Eliminar movimiento y restaurar existencias">${icon("trash-2", 16)}</button></div></article>`;
+      return `<article class="movement-row ${kind}"><span class="movement-direction">${icon(kind === "entry" ? "arrow-down-left" : "arrow-up-right", 20)}</span><div class="movement-product"><strong>${escapeHTML(movement.product || "Producto")}</strong><small>${escapeHTML(movement.code || "")}${movement.reference ? ` · ${escapeHTML(movement.reference)}` : ""}</small></div><div><small>Movimiento</small><strong>${escapeHTML(String(movement.type || (kind === "entry" ? "ENTRADA" : "SALIDA")).replaceAll("_", " "))}</strong></div><div><small>Existencia</small><strong>${Number(movement.before || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })} → ${Number(movement.after || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></div><strong class="movement-delta">${delta > 0 ? "+" : ""}${delta.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong><div class="movement-audit"><span><strong>${escapeHTML(movement.user || "Sistema")}</strong><small>${escapeHTML(prettyDateTime(movement.date))}</small></span>${isBoss() ? `<button class="icon-btn danger" type="button" data-delete-movement="${escapeHTML(movement.movementId)}" data-boss-only aria-label="Eliminar movimiento y restaurar existencias">${icon("trash-2", 16)}</button>` : ""}</div></article>`;
     }).join("") : "";
     if (append) {
       if (markup) list.insertAdjacentHTML("beforeend", markup);
@@ -4478,12 +4502,14 @@ const App = (() => {
     return ids;
   };
 
-  const loadInventoryMovements = async () => {
-    if (!isAppsScriptConfigured() || !state.currentUser) return false;
+  const loadInventoryMovements = async ({ background = false } = {}) => {
+    if (!isAppsScriptConfigured() || !state.currentUser || state.movementLoading) return false;
     const requestId = ++state.movementRequestId;
+    state.movementLoading = true;
     state.movementNextBeforeRow = null;
     const more = $("#loadMoreMovements");
     if (more) more.hidden = true;
+    if (!background && state.activeAdminSection === "movements") renderInventoryMovements();
     try {
       const result = await appsScriptRequest("get_inventory_movements", { limit: 800 });
       if (!result?.ok || !Array.isArray(result.movements)) throw new Error(result?.error || "El historial remoto devolvió una respuesta inválida.");
@@ -4495,13 +4521,18 @@ const App = (() => {
       result.movements.forEach((movement) => merged.set(movement.movementId, movement));
       state.inventoryMovements = Array.from(merged.values()).slice(-3000);
       state.movementNextBeforeRow = result.hasMore ? Number(result.nextBeforeRow) || null : null;
+      state.movementRevision = typeof result.revision === "string" ? result.revision : state.movementRevision;
+      state.movementLoaded = true;
       persistInventoryMovements();
       if (state.activeAdminSection === "movements") renderInventoryMovements();
       return true;
     } catch (error) {
       if (requestId !== state.movementRequestId) return false;
+      state.movementLoading = false;
       if (state.activeAdminSection === "movements") renderInventoryMovements();
       return false;
+    } finally {
+      state.movementLoading = false;
     }
   };
 
@@ -4527,6 +4558,7 @@ const App = (() => {
       const additions = result.movements.filter((movement) => !knownIds.has(String(movement.movementId)));
       state.inventoryMovements.push(...additions);
       state.movementNextBeforeRow = result.hasMore ? Number(result.nextBeforeRow) || null : null;
+      state.movementRevision = typeof result.revision === "string" ? result.revision : state.movementRevision;
       persistInventoryMovements();
       if (state.activeAdminSection === "movements") {
         const appendInOrder = additions.every((movement) => String(movement.date || "") <= previousOldestDate);
@@ -4775,6 +4807,7 @@ const App = (() => {
       from.value = range.dateFrom;
       to.value = range.dateTo;
     }
+    if (!state.incomeAppliedRange) state.incomeAppliedRange = { dateFrom: from.value, dateTo: to.value };
     markIncomeRangePreset();
   };
 
@@ -4786,6 +4819,7 @@ const App = (() => {
     state.incomeRangePreset = preset;
     from.value = range.dateFrom;
     to.value = range.dateTo;
+    state.incomeAppliedRange = range;
     markIncomeRangePreset();
     if (refresh) void loadIncomeReport();
   };
@@ -4793,8 +4827,8 @@ const App = (() => {
   const incomeFiltersFromForm = () => {
     initializeIncomeFilters();
     return {
-      dateFrom: $("#incomeDateFrom")?.value || dateInputValue(new Date()),
-      dateTo: $("#incomeDateTo")?.value || dateInputValue(new Date()),
+      dateFrom: state.incomeAppliedRange?.dateFrom || dateInputValue(new Date()),
+      dateTo: state.incomeAppliedRange?.dateTo || dateInputValue(new Date()),
       paymentMethod: $("#incomePaymentMethod")?.value || "all",
       query: $("#incomeSearch")?.value.trim() || "",
       limit: 300
@@ -4897,14 +4931,16 @@ const App = (() => {
   };
 
   const localIncomeReport = (filters, error = "") => {
-    const records = localIncomeRecords(filters);
+    const allLocalRecords = localIncomeRecords(filters);
     return {
       filters,
-      totals: incomeTotalsFromRecords(records),
-      records,
-      recordKeys: records.map((record) => record.saleId),
-      totalRecords: records.length,
-      truncated: false,
+      totals: incomeTotalsFromRecords(allLocalRecords),
+      records: allLocalRecords.slice(0, 300),
+      allLocalRecords,
+      nextIndex: Math.min(300, allLocalRecords.length),
+      recordKeys: allLocalRecords.map((record) => record.saleId),
+      totalRecords: allLocalRecords.length,
+      truncated: allLocalRecords.length > 300,
       localOnly: true,
       error
     };
@@ -5027,7 +5063,7 @@ const App = (() => {
   };
 
   const mergeIncomeReport = (remote, filters) => {
-    const remoteKeys = new Set(remote.recordKeys || (remote.records || []).map((record) => record.saleId));
+    const remoteKeys = new Set((remote.recordRows || []).map((entry) => String(entry.saleId)));
     const pendingSaleIds = new Set(readAppsScriptOutbox()
       .filter((job) => job.action === "record_sale")
       .map((job) => String(job.payload?.invoice?.id || job.payload?.invoice?.sessionId || ""))
@@ -5042,7 +5078,9 @@ const App = (() => {
       ...remote,
       filters,
       totals,
-      records: [...pending, ...(remote.records || [])].sort((left, right) => String(right.date).localeCompare(String(left.date))),
+      records: [...pending, ...(remote.records || [])].sort((left, right) => String(right.date).localeCompare(String(left.date)) || String(right.saleId).localeCompare(String(left.saleId))),
+      nextIndex: (remote.records || []).length,
+      recordKeys: (remote.recordRows || []).map((entry) => entry.saleId),
       totalRecords: Number(remote.totalRecords || 0) + pending.length,
       pendingCount: pending.length,
       localOnly: false
@@ -5066,7 +5104,7 @@ const App = (() => {
     state.adminAiRenderSignature = renderSignature;
     suggestions.innerHTML = ["¿Cuanto se vendio hoy?", "¿Que producto se vendio mas?", "¿Quien realizo las ventas?", "¿Que productos tienen stock bajo?"]
       .map((question) => `<button class="chip" type="button" data-admin-ai-question="${escapeHTML(question)}">${escapeHTML(question)}</button>`).join("");
-    const messages = state.adminAiMessages.length ? state.adminAiMessages : [{ role: "bot", text: "Puedo cruzar el informe de ingresos, el inventario y los movimientos visibles. Preguntame por productos, cantidades, responsables, ventas o existencias." }];
+    const messages = state.adminAiMessages.length ? state.adminAiMessages : [{ role: "bot", text: "Puedo cruzar el informe de ventas, el inventario y los movimientos visibles. Preguntame por productos, cantidades, responsables, ventas o existencias." }];
     chat.innerHTML = messages.map((message) => `<div class="admin-ai-message ${message.role}">${message.role === "bot" ? icon("sparkles", 17) : ""}<p>${escapeHTML(message.text)}</p></div>`).join("");
     chat.scrollTop = chat.scrollHeight;
     refreshIcons();
@@ -5152,15 +5190,13 @@ const App = (() => {
       payments.innerHTML = "";
       if (summaryTarget) summaryTarget.innerHTML = "";
       recordsTarget.innerHTML = emptyState("Preparando contabilidad", "Estamos consultando las ventas cerradas.", "loader-circle");
-      setIncomeReportStatus("Consultando ingresos", "loading", "loader-circle");
+      setIncomeReportStatus("Consultando ventas", "loading", "loader-circle");
       return;
     }
     const totals = report.totals || {};
     const margin = Number(totals.income || 0) > 0 ? Number(totals.profit || 0) / Number(totals.income) * 100 : 0;
     const infoButton = (label, explanation) => `<button class="income-kpi-info" type="button" aria-label="Qué significa ${escapeHTML(label)}" data-tooltip="${escapeHTML(explanation)}">${icon("info", 15)}</button>`;
-    kpis.innerHTML = state.incomeLoading
-      ? Array.from({ length: 3 }, () => '<article class="income-kpi is-loading"><span></span><strong></strong><small></small></article>').join("")
-      : `
+    kpis.innerHTML = `
         <article class="income-kpi is-primary">${infoButton("Dinero vendido", "Todo el dinero cobrado en las ventas de este periodo.")}<span>${icon("circle-dollar-sign", 19)} Dinero vendido</span><strong>${money(totals.income)}</strong><small>Total vendido en el periodo seleccionado</small></article>
         <article class="income-kpi is-profit">${infoButton("Ganancia aproximada", "Lo que queda al restar del dinero vendido el costo de los productos.")}<span>${icon("trending-up", 19)} Ganancia aproximada</span><strong>${money(totals.profit)}</strong><small>${margin.toLocaleString("es-CO", { maximumFractionDigits: 1 })}% del dinero vendido</small></article>
         <article class="income-kpi">${infoButton("Costo de los productos", "Lo que el negocio pagó por los productos que ya vendió.")}<span>${icon("package-search", 19)} Costo de los productos</span><strong>${money(totals.cost)}</strong><small>Valor de compra de lo que se vendió</small></article>`;
@@ -5180,7 +5216,7 @@ const App = (() => {
           const itemRows = (record.items || []).map((item) => `<li><span>${Number(item.quantity || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 })} × ${escapeHTML(item.name)}</span><strong>${money(item.total)}</strong></li>`).join("");
           return `<article class="income-record">
             <div class="income-record-main">
-              <div class="income-record-invoice"><span>${escapeHTML(record.invoice || "Factura")}</span><small>${escapeHTML(formatIncomeDate(record.date))}</small><div class="income-record-actions"><button class="icon-btn" type="button" data-edit-income="${escapeHTML(record.saleId)}" aria-label="Editar venta">${icon("pencil", 15)}</button><button class="icon-btn danger" type="button" data-delete-income="${escapeHTML(record.saleId)}" aria-label="Eliminar venta completa">${icon("trash-2", 15)}</button></div></div>
+              <div class="income-record-invoice"><span>${escapeHTML(record.invoice || "Factura")}</span><small>${escapeHTML(formatIncomeDate(record.date))}</small>${isBoss() ? `<div class="income-record-actions" data-boss-only><button class="icon-btn" type="button" data-edit-income="${escapeHTML(record.saleId)}" aria-label="Editar venta">${icon("pencil", 15)}</button><button class="icon-btn danger" type="button" data-delete-income="${escapeHTML(record.saleId)}" aria-label="Eliminar venta completa">${icon("trash-2", 15)}</button></div>` : ""}</div>
               <div><small>Mesa / responsable</small><strong>${escapeHTML(record.table || "Mesa")}</strong><span>${escapeHTML(record.payer || "Sin responsable")}</span></div>
               <div><small>Atendido por</small><strong>${escapeHTML(record.waiter || "Sin asignar")}</strong><span>${escapeHTML(record.reference || "Sin referencia")}</span></div>
               <div class="income-record-total"><small>Total</small><strong>${money(record.total)}</strong><span class="income-record-profit">Ganancia ${money(record.profit)}</span></div>
@@ -5195,13 +5231,20 @@ const App = (() => {
             </details>
           </article>`;
         }).join("")
-      : emptyState("Sin ingresos en este rango", "Prueba otro periodo, medio de pago o término de búsqueda.", "receipt-text");
+      : emptyState("Sin ventas en este rango", "Prueba otro periodo, medio de pago o término de búsqueda.", "receipt-text");
     if (appendFrom && report.records?.length) recordsTarget.insertAdjacentHTML("beforeend", recordRows);
     else recordsTarget.innerHTML = recordRows;
     const more = $("#loadMoreIncome");
-    if (more) more.hidden = !report.hasMore || !report.nextCursor;
+    const hasMore = report.localOnly
+      ? Number(report.nextIndex || 0) < (report.allLocalRecords || []).length
+      : Number(report.nextIndex || 0) < (report.recordRows || []).length;
+    if (more) {
+      more.hidden = !hasMore;
+      more.disabled = state.incomeLoadingMore || state.incomeLoading;
+      more.textContent = state.incomeLoadingMore ? "Cargando ventas..." : "Ver más ventas";
+    }
     const pendingText = report.pendingCount ? ` · ${report.pendingCount} pendiente${report.pendingCount === 1 ? "" : "s"} de respaldo` : "";
-    const limitedText = report.hasMore ? ` · mostrando ${Number(report.records?.length || 0).toLocaleString("es-CO")} de ${Number(report.totalRecords || 0).toLocaleString("es-CO")}` : "";
+    const limitedText = hasMore ? ` · mostrando ${Number(report.records?.length || 0).toLocaleString("es-CO")} de ${Number(report.totalRecords || 0).toLocaleString("es-CO")}` : "";
     setIncomeReportStatus(`${Number(report.totalRecords || 0).toLocaleString("es-CO")} factura${Number(report.totalRecords || 0) === 1 ? "" : "s"}${pendingText}${limitedText}`, report.localOnly ? "warning" : "ready", report.localOnly ? "hard-drive" : "badge-check");
     refreshIcons();
   };
@@ -5239,7 +5282,7 @@ const App = (() => {
           await loadIncomeReport();
         }
       })
-      .catch((error) => console.warn("No se pudo conciliar ingresos cerrados desde movimientos.", error))
+      .catch((error) => console.warn("No se pudo conciliar ventas cerradas desde movimientos.", error))
       .finally(() => {
         state.incomeRecoveryPromise = null;
         const report = state.incomeRecoveryReport;
@@ -5249,8 +5292,10 @@ const App = (() => {
       });
   };
 
-  const loadIncomeReport = async () => {
-    if (!$("#income") || state.currentUser?.role !== "admin") return false;
+  const loadIncomeReport = async ({ background = false } = {}) => {
+    if (!$("#income") || !canAccessAdminSection("income")) return false;
+    clearTimeout(state.incomeSearchTimer);
+    state.incomeSearchTimer = null;
     const filters = incomeFiltersFromForm();
     if (filters.dateFrom > filters.dateTo) {
       toast("La fecha inicial no puede ser posterior a la fecha final.", "error", "invalid-income-range");
@@ -5260,27 +5305,37 @@ const App = (() => {
     state.incomeRequestKey = JSON.stringify(filters);
     state.incomeLastRequestAt = Date.now();
     state.incomeLoading = true;
-    state.incomeReport = null;
-    renderIncomeReport();
-    if (!navigator.onLine || !isAppsScriptConfigured()) {
-      state.incomeReport = localIncomeReport(filters);
+    state.incomeLoadingMore = false;
+    const previousReport = state.incomeReport;
+    if (!background || !previousReport) {
+      state.incomeReport = null;
       renderIncomeReport();
+      setIncomeReportStatus("Actualizando informe", "loading", "loader-circle");
     }
-    setIncomeReportStatus("Actualizando informe", "loading", "loader-circle");
     try {
       if (!isAppsScriptConfigured()) throw new Error("El historial remoto no está configurado.");
-      const result = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
+      let result = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
+      if (requestId !== state.incomeRequestId) return false;
+      if (result?.stale) result = await appsScriptRequest("get_income_report", { filters }, APPS_SCRIPT_TIMEOUT_MS);
       if (!result?.ok) throw new Error(result?.error || "No se pudo consultar el historial.");
+      if (result.stale) throw new Error("El historial cambió mientras se calculaba. Actualiza el informe.");
+      if (!Array.isArray(result.recordRows) || typeof result.revision !== "string") throw new Error(`Publica Code.gs ${APPS_SCRIPT_REQUIRED_VERSION} para paginar ventas.`);
       if (requestId !== state.incomeRequestId) return false;
       state.incomeLoading = false;
       state.incomeReport = mergeIncomeReport(result, filters);
-      renderIncomeReport();
-      scheduleIncomeRecovery(result);
+      state.incomeFetchedAt = Date.now();
+      state.incomeRevision = result.revision;
+      if (state.activeAdminSection === "income") renderIncomeReport();
       return true;
     } catch (error) {
       if (requestId !== state.incomeRequestId) return false;
       state.incomeLoading = false;
+      if (background && previousReport) {
+        state.incomeReport = previousReport;
+        return false;
+      }
       state.incomeReport = localIncomeReport(filters, String(error?.message || error));
+      state.incomeFetchedAt = Date.now();
       renderIncomeReport();
       setIncomeReportStatus("Mostrando ventas disponibles en esta caja", "warning", "hard-drive");
       return false;
@@ -5289,9 +5344,50 @@ const App = (() => {
     }
   };
 
+  const refreshBackgroundReports = async ({ force = false } = {}) => {
+    const canLoadIncome = canAccessAdminSection("income");
+    const canLoadMovements = canAccessAdminSection("movements");
+    if ((!canLoadIncome && !canLoadMovements) || !state.currentUser || !navigator.onLine || !isAppsScriptConfigured()) return false;
+    const now = Date.now();
+    if (state.backgroundReportSyncBusy || (!force && now - state.backgroundReportCheckedAt < 12000)) return false;
+    state.backgroundReportSyncBusy = true;
+    state.backgroundReportCheckedAt = now;
+    try {
+      const status = await appsScriptRequest("status", {}, 12000);
+      if (!status?.ok) return false;
+      const hasIncomeRevision = Object.prototype.hasOwnProperty.call(status, "historyRevision");
+      const hasMovementRevision = Object.prototype.hasOwnProperty.call(status, "movementRevision");
+      const historyRevision = String(status.historyRevision || "");
+      const movementRevision = String(status.movementRevision || "");
+      const tasks = [];
+      if (canLoadIncome && !state.incomeLoading && (!state.incomeReport || (hasIncomeRevision && state.incomeRevision !== historyRevision))) {
+        tasks.push(loadIncomeReport({ background: Boolean(state.incomeReport) }));
+      }
+      if (canLoadMovements && !state.movementLoading && (!state.movementLoaded || (hasMovementRevision && state.movementRevision !== movementRevision))) {
+        tasks.push(loadInventoryMovements({ background: state.movementLoaded || Boolean(state.inventoryMovements.length) }));
+      }
+      if (tasks.length) await Promise.all(tasks);
+      return true;
+    } catch (error) {
+      return false;
+    } finally {
+      state.backgroundReportSyncBusy = false;
+    }
+  };
+
   const loadMoreIncomeReport = async () => {
     const report = state.incomeReport;
-    if (state.incomeLoading || state.incomeLoadingMore || !report?.hasMore || !report.nextCursor) return false;
+    if (!report || state.incomeLoading || state.incomeLoadingMore) return false;
+    const start = Number(report.nextIndex || 0);
+    if (report.localOnly) {
+      const appendFrom = report.records.length;
+      report.records = [...report.records, ...(report.allLocalRecords || []).slice(start, start + 300)];
+      report.nextIndex = report.records.length;
+      renderIncomeReport({ appendFrom });
+      return true;
+    }
+    const pageRows = (report.recordRows || []).slice(start, start + 300);
+    if (!pageRows.length) return false;
     const button = $("#loadMoreIncome");
     const requestId = state.incomeRequestId;
     state.incomeLoadingMore = true;
@@ -5301,23 +5397,21 @@ const App = (() => {
     }
     try {
       const result = await appsScriptRequest("get_income_report", {
-        filters: { ...report.filters, limit: 300, cursor: report.nextCursor }
+        filters: { ...report.filters, pageRows, revision: report.revision }
       }, APPS_SCRIPT_TIMEOUT_MS);
-      if (!result?.ok || !Array.isArray(result.records) || (result.hasMore && !result.nextCursor)) {
-        throw new Error(result?.error || "No se pudieron cargar más ventas.");
-      }
+      if (!result?.ok) throw new Error(result?.error || "No se pudieron cargar más ventas.");
       if (requestId !== state.incomeRequestId || state.incomeReport !== report) return false;
-      const knownIds = new Set(report.records.map((record) => String(record.saleId)));
-      const additions = result.records.filter((record) => !knownIds.has(String(record.saleId)));
-      const appendFrom = report.records.length;
-      state.incomeReport = {
-        ...report,
-        records: [...report.records, ...additions],
-        hasMore: result.hasMore === true,
-        nextCursor: result.nextCursor || null,
-        truncated: result.hasMore === true
-      };
-      renderIncomeReport({ appendFrom });
+      if (result.stale) {
+        await loadIncomeReport();
+        return false;
+      }
+      const previousIds = report.records.map((record) => String(record.saleId));
+      const merged = new Map(report.records.map((record) => [String(record.saleId), record]));
+      (result.records || []).forEach((record) => merged.set(String(record.saleId), record));
+      report.records = Array.from(merged.values()).sort((left, right) => String(right.date).localeCompare(String(left.date)) || String(right.saleId).localeCompare(String(left.saleId)));
+      report.nextIndex = start + pageRows.length;
+      const canAppend = previousIds.every((id, index) => String(report.records[index]?.saleId) === id);
+      renderIncomeReport({ appendFrom: canAppend ? previousIds.length : 0 });
       return true;
     } catch (error) {
       if (requestId === state.incomeRequestId) toast(String(error?.message || error), "error", "more-income-failed");
@@ -5352,12 +5446,12 @@ const App = (() => {
   };
 
   const resetSectionData = async (section) => {
-    if (state.currentUser?.role !== "admin") return;
+    if (!canDeleteRecords()) return;
     const settings = {
       inventory: {
         eyebrow: "Reiniciar inventario",
         title: "¿Eliminar todo el inventario?",
-        message: "Se eliminarán todos los productos y sus existencias. Ingresos y movimientos conservarán su información.",
+        message: "Se eliminarán todos los productos y sus existencias. Ventas y movimientos conservarán su información.",
         action: "clear_inventory",
         success: "Inventario eliminado. Ya puedes empezar desde cero."
       },
@@ -5369,11 +5463,11 @@ const App = (() => {
         success: "Movimientos eliminados y existencias restauradas."
       },
       income: {
-        eyebrow: "Reiniciar ingresos",
-        title: "¿Eliminar todos los ingresos?",
+        eyebrow: "Reiniciar ventas",
+        title: "¿Eliminar todas las ventas?",
         message: "Se borrarán todas las ventas, pagos y totales históricos. El inventario actual no cambiará.",
         action: "clear_income",
-        success: "Ingresos eliminados. Todos los valores quedaron en cero."
+        success: "Ventas eliminadas. Todos los valores quedaron en cero."
       }
     }[section];
     if (!settings) return;
@@ -5535,6 +5629,7 @@ const App = (() => {
   };
 
   const openIncomeEdit = (saleId) => {
+    if (!canDeleteRecords()) return;
     const record = state.incomeReport?.records?.find((entry) => String(entry.saleId) === String(saleId));
     const form = $("#incomeEditForm");
     if (!record || !form) return;
@@ -5553,6 +5648,7 @@ const App = (() => {
   };
 
   const openDeleteIncomeDialog = (saleId) => {
+    if (!canDeleteRecords()) return;
     const record = state.incomeReport?.records?.find((entry) => String(entry.saleId) === String(saleId));
     const form = $("#deleteIncomeForm");
     if (!record || !form) return;
@@ -5564,6 +5660,7 @@ const App = (() => {
   };
 
   const deleteIncomeSale = async (form) => {
+    if (!canDeleteRecords()) return;
     const saleId = form.sale_id.value;
     const record = state.incomeReport?.records?.find((entry) => String(entry.saleId) === String(saleId));
     if (!record) return;
@@ -5623,6 +5720,7 @@ const App = (() => {
   };
 
   const saveIncomeEdit = async (form) => {
+    if (!canDeleteRecords()) return;
     const record = state.incomeReport?.records?.find((entry) => String(entry.saleId) === String(form.sale_id.value));
     if (!record) return;
     const items = $$('[data-income-line]', form).map((row) => ({
@@ -5692,7 +5790,7 @@ const App = (() => {
   const exportIncomeCsv = () => {
     const records = state.incomeReport?.records || [];
     if (!records.length) {
-      toast("No hay ingresos para exportar con estos filtros.", "error", "empty-income-export");
+      toast("No hay ventas para exportar con estos filtros.", "error", "empty-income-export");
       return;
     }
     const safeCsv = (value) => {
@@ -5710,7 +5808,7 @@ const App = (() => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `ingresos-${state.incomeReport.filters?.dateFrom || "inicio"}-${state.incomeReport.filters?.dateTo || "hoy"}.csv`;
+    link.download = `ventas-${state.incomeReport.filters?.dateFrom || "inicio"}-${state.incomeReport.filters?.dateTo || "hoy"}.csv`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -5786,7 +5884,7 @@ const App = (() => {
               <div><strong>${escapeHTML(item.item_name)}</strong><span>${Number(item.quantity || 0)} × ${money(item.unit_price)}</span><small>${escapeHTML(item.created_by_user?.full_name || "Cliente")}${item.created_at ? ` · ${new Date(item.created_at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}${item.notes ? ` · ${escapeHTML(item.notes)}` : ""}</small></div>
               <strong>${money(Number(item.unit_price) * Number(item.quantity))}</strong>
               <button class="icon-btn" type="button" data-edit-consumption="${item.id}" data-session-id="${session.id}" aria-label="Editar consumo">${icon("pencil", 15)}</button>
-              <button class="icon-btn danger" type="button" data-delete-consumption="${item.id}" data-session-id="${session.id}" aria-label="Eliminar consumo">${icon("trash-2", 15)}</button>
+              <button class="icon-btn danger" type="button" data-delete-consumption="${item.id}" data-session-id="${session.id}" data-boss-only aria-label="Eliminar consumo">${icon("trash-2", 15)}</button>
             </div>`).join("") || `<div class="invoice-empty">${icon("clipboard-list", 18)} Sin consumos registrados</div>`}
         </div>
         ${suggestedTip ? `<div class="account-detail-tip"><span><small>Propina voluntaria (${state.tipSettings.percentage}%)</small><strong>${money(suggestedTip)}</strong></span><span><small>Total sugerido con propina</small><strong>${money(suggestedTotal)}</strong></span></div>` : ""}
@@ -5867,7 +5965,7 @@ const App = (() => {
     const splitResult = $("#tipSplitResult");
     const resetButton = $("#resetTips");
     if (!kpis || !recordsBox || !peopleInput || !splitResult) return;
-    if (resetButton) resetButton.hidden = state.currentUser?.role !== "admin";
+    if (resetButton) resetButton.hidden = !isBoss();
     const tipInvoices = state.invoiceHistory
       .filter((invoice) => Number(invoice.tipAmount ?? invoice.totals?.tip ?? 0) > 0 && !state.clearedTipInvoiceKeys.has(tipInvoiceKey(invoice)))
       .sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0));
@@ -5899,7 +5997,7 @@ const App = (() => {
   };
 
   const resetTips = () => {
-    if (state.currentUser?.role !== "admin") return;
+    if (!canDeleteRecords()) return;
     state.invoiceHistory
       .filter((invoice) => Number(invoice.tipAmount ?? invoice.totals?.tip ?? 0) > 0)
       .forEach((invoice) => state.clearedTipInvoiceKeys.add(tipInvoiceKey(invoice)));
@@ -6011,7 +6109,7 @@ const App = (() => {
   };
 
   const deleteInventoryMovement = async (movementId) => {
-    if (state.currentUser?.role !== "admin") return;
+    if (!canDeleteRecords()) return;
     const movement = state.inventoryMovements.find((entry) => String(entry.movementId) === String(movementId));
     if (!movement) return;
     const delta = Number(movement.delta ?? movement.quantityChange ?? 0);
@@ -6989,7 +7087,7 @@ const App = (() => {
     const priceWarning = $("#consumptionSelectionPriceWarning");
     if (!box || !lines || !count || !total) return;
     const drafts = state.consumptionDrafts;
-    const canEditPrice = state.currentUser?.role !== "waiter";
+    const canEditPrice = true;
     const hasEditedPrice = drafts.some((draft) => draft.menuItemId && Number(draft.unitPrice) !== Number(draft.originalUnitPrice));
     box.hidden = drafts.length === 0;
     count.textContent = `${drafts.length} ${drafts.length === 1 ? "producto" : "productos"}`;
@@ -7036,7 +7134,6 @@ const App = (() => {
   };
 
   const editConsumptionDraftPrice = (priceElement) => {
-    if (state.currentUser?.role === "waiter") return;
     const index = Number(priceElement?.dataset.editConsumptionPrice);
     const draft = state.consumptionDrafts[index];
     if (!Number.isInteger(index) || !draft) return;
@@ -7159,7 +7256,7 @@ const App = (() => {
     if (!preview || !actions) return;
     const items = session ? newestSessionItems(session) : [];
     const emptyAccount = Boolean(session) && !items.length && sessionTotal(session) <= 0;
-    actions.hidden = !session || isLocalWalkInSession(session);
+    actions.hidden = isWaiter() || !session || isLocalWalkInSession(session);
     const viewButton = $("#viewTableConsumption");
     const chargeButton = $("#chargeTableAccount");
     const releaseButton = $("#releaseEmptyTable");
@@ -7509,6 +7606,7 @@ const App = (() => {
   };
 
   const deleteConsumption = async (sessionId, itemId) => {
+    if (!canDeleteRecords()) return;
     const session = state.sessions.find((entry) => entry.id === sessionId);
     const item = session?.session_items?.find((entry) => entry.id === itemId && entry.status !== "cancelled");
     if (!session || !item) return;
@@ -7946,6 +8044,7 @@ const App = (() => {
   };
 
   const deleteRow = async (table, id, label) => {
+    if (!canDeleteRecords()) return;
     const rowBeforeDelete = table === "restaurant_tables" ? state.tables.find((entry) => entry.id === id) : null;
     const quickServicePointDelete = Boolean(rowBeforeDelete && isServicePoint(rowBeforeDelete));
     if (table === "menu_items") {
@@ -8069,6 +8168,10 @@ const App = (() => {
     $("#incomeFilterForm")?.addEventListener("submit", (event) => {
       event.preventDefault();
       if (state.incomeRangePreset !== "custom") return;
+      state.incomeAppliedRange = {
+        dateFrom: $("#incomeDateFrom")?.value || dateInputValue(new Date()),
+        dateTo: $("#incomeDateTo")?.value || dateInputValue(new Date())
+      };
       void loadIncomeReport();
     });
     $("#incomeEditForm")?.addEventListener("submit", async (event) => {
@@ -8327,6 +8430,10 @@ const App = (() => {
     $("#logoutButton")?.addEventListener("click", logoutAdmin);
 
     document.addEventListener("change", async (event) => {
+      if (event.target.matches("#userForm [name='role']")) {
+        syncUserPermissionsForm(event.target.form);
+        return;
+      }
       if (event.target.matches("[data-outdoor-table]")) {
         if (!(state.outdoorTableDraftIds instanceof Set)) state.outdoorTableDraftIds = new Set();
         const id = String(event.target.dataset.outdoorTable || "");
@@ -8337,6 +8444,7 @@ const App = (() => {
         return;
       }
       if (event.target.matches("[data-user-access]")) {
+        if (!isBoss()) return;
         await toggleUserAccess(event.target.dataset.userAccess, event.target.checked, event.target);
         return;
       }
@@ -8371,7 +8479,7 @@ const App = (() => {
         const section = navLink.getAttribute("href")?.replace("#", "") || "dashboard";
         history.replaceState(null, "", `#${section}`);
         showAdminSection(section);
-        if (section === "users" && state.currentUser?.role === "admin") {
+        if (section === "users" && isBoss()) {
           void loadUsers().then(renderUsers);
         }
         document.documentElement.scrollTop = 0;
@@ -8395,6 +8503,21 @@ const App = (() => {
 
       const target = event.target.closest("button");
       if (!target) return;
+      if (target.dataset.toggleUserPin !== undefined) {
+        const pin = target.form?.pin;
+        if (!pin) return;
+        const visible = pin.type === "text";
+        pin.type = visible ? "password" : "text";
+        target.title = visible ? "Mostrar PIN" : "Ocultar PIN";
+        target.setAttribute("aria-label", target.title);
+        target.innerHTML = icon(visible ? "eye-off" : "eye", 18);
+        refreshIcons();
+        return;
+      }
+      if (target.dataset.shareUser) {
+        await shareUserCredentials(target.dataset.shareUser);
+        return;
+      }
       if (target.id === "enableSound") {
         if (state.soundEnabled) {
           if (await confirmDisableAlarm()) disableAlarm();
@@ -8449,7 +8572,7 @@ const App = (() => {
           const filters = incomeFiltersFromForm();
           state.incomeRecoveredRanges.delete(`${filters.dateFrom}:${filters.dateTo}`);
           return loadIncomeReport();
-        }, "Informe de ingresos actualizado.");
+        }, "Informe de ventas actualizado.");
       }
       if (target.id === "loadMoreIncome") await loadMoreIncomeReport();
       if (target.id === "exportIncomeCsv") exportIncomeCsv();
@@ -8485,7 +8608,6 @@ const App = (() => {
         localStorage.setItem(SERVICE_ZONE_STORAGE_KEY, state.activeServiceZone);
         renderServicePoints();
       }
-      if (target.id === "openCashDrawer" || target.dataset.openCashDrawer !== undefined) await openCashDrawer();
       if (target.id === "receiptPrintButton") printLastPaidReceipt();
       if (target.dataset.closeReceiptResult !== undefined) $("#receiptResultDialog")?.close();
       if (target.id === "viewTableConsumption") {
@@ -8962,11 +9084,12 @@ const App = (() => {
     document.body.dataset.userRole = state.currentUser?.role || "";
     const displayName = state.currentUser?.full_name || "Sin sesión";
     $("#currentUserName") && ($("#currentUserName").textContent = displayName);
-    $("#currentUserRole") && ($("#currentUserRole").textContent = state.currentUser?.role === "admin" ? "Administrador" : "Mesero");
+    $("#currentUserRole") && ($("#currentUserRole").textContent = roleLabel(state.currentUser?.role));
     $("#currentUserInitials") && ($("#currentUserInitials").textContent = state.currentUser
       ? displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase()
       : "TN");
     document.body.classList.toggle("admin-authenticated", Boolean(state.currentUser));
+    syncAdminSectionAccess();
   };
 
   const ADMIN_USER_CACHE_KEY = "la_licorera_17_admin_user_v1";
@@ -8985,6 +9108,7 @@ const App = (() => {
           state.currentUser = data;
           localStorage.setItem(ADMIN_USER_CACHE_KEY, JSON.stringify(data));
           applyCurrentUser();
+          if (isBoss()) void loadUsers().then(renderUsers);
           return;
         }
         if (error && /sesion vencida|autenticacion requerida|usuario inactivo/i.test(String(error.message || ""))) {
@@ -9026,10 +9150,10 @@ const App = (() => {
       $$("input", regularCredentials || document).forEach((input) => { input.disabled = initialSetup; });
       $$("input", initialCredentials || document).forEach((input) => { input.disabled = !initialSetup; });
       if (intro) intro.textContent = initialSetup
-        ? "Crea el primer administrador para activar esta instalación."
+        ? "Crea el primer Jefe para activar esta instalación."
         : "Ingresa con tu usuario y PIN personal.";
       if (submitButton) submitButton.innerHTML = initialSetup
-        ? `${icon("user-plus", 18)} Crear administrador`
+        ? `${icon("user-plus", 18)} Crear Jefe`
         : `${icon("log-in", 18)} Entrar`;
       refreshIcons();
     };
@@ -9050,7 +9174,7 @@ const App = (() => {
             pin
           }), null);
           if (!created?.id) {
-            if (errorBox) errorBox.textContent = "No fue posible crear el administrador. Revisa los datos e intenta nuevamente.";
+            if (errorBox) errorBox.textContent = "No fue posible crear el Jefe. Revisa los datos e intenta nuevamente.";
             if (button) button.disabled = false;
             return;
           }
@@ -9078,7 +9202,8 @@ const App = (() => {
   };
 
   const sortUsers = (users) => [...users].sort((left, right) => {
-    const roleOrder = (left.role === "admin" ? 0 : 1) - (right.role === "admin" ? 0 : 1);
+    const order = { boss: 0, admin: 1, waiter: 2 };
+    const roleOrder = (order[left.role] ?? 3) - (order[right.role] ?? 3);
     return roleOrder || String(left.full_name || "").localeCompare(String(right.full_name || ""), "es");
   });
 
@@ -9094,10 +9219,75 @@ const App = (() => {
     } catch (error) { /* La lista remota sigue siendo la fuente principal. */ }
   };
 
+  const persistUserCredentialPins = () => {
+    try {
+      localStorage.setItem(USER_CREDENTIALS_CACHE_KEY, JSON.stringify(state.userCredentialPins));
+    } catch (error) { /* La credencial puede copiarse durante esta sesión. */ }
+  };
+
+  const syncUserPermissionsForm = (form = $("#userForm"), permissions = null) => {
+    if (!form) return;
+    const isAdministrator = form.role.value === "admin";
+    const fieldset = $("#userPermissions");
+    if (fieldset) fieldset.hidden = !isAdministrator;
+    const selected = new Set(Array.isArray(permissions) && permissions.length ? permissions : ADMIN_SECTION_KEYS);
+    $$("input[name='permissions']", form).forEach((input) => {
+      input.checked = selected.has(input.value);
+      input.disabled = !isAdministrator;
+    });
+  };
+
+  const copyTextToClipboard = async (text) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const field = document.createElement("textarea");
+    field.value = text;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    field.select();
+    document.execCommand("copy");
+    field.remove();
+  };
+
+  const shareUserCredentials = async (id) => {
+    if (!isBoss()) return;
+    const user = state.users.find((entry) => String(entry.id) === String(id));
+    if (!user) return;
+    const pin = String(state.userCredentialPins[user.id] || "");
+    if (!pin) {
+      editUser(user.id);
+      toast("Por seguridad el PIN anterior no se puede recuperar. Escribe uno nuevo, guarda y luego copia el acceso.", "error", `missing-user-pin:${user.id}`);
+      return;
+    }
+    const accessUrl = new URL("admin.html", location.href);
+    accessUrl.search = "";
+    accessUrl.hash = "";
+    const message = [
+      "✨ Tu acceso a Los Años Maravillosos",
+      "",
+      `Hola ${user.full_name}, estas son tus credenciales:`,
+      `🔗 Enlace: ${accessUrl.href}`,
+      `👤 Usuario: ${user.username}`,
+      `🔐 PIN: ${pin}`,
+      "",
+      "Guarda este mensaje en un lugar seguro."
+    ].join("\n");
+    try {
+      await copyTextToClipboard(message);
+      toast(`Acceso de ${user.full_name} copiado para compartir.`, "ok", `credentials-copied:${user.id}`);
+    } catch (error) {
+      toast("No fue posible copiar las credenciales en este dispositivo.", "error", `credentials-copy-failed:${user.id}`);
+    }
+  };
+
   const loadUsers = async () => {
     const cachedUsers = readLocalJson(USER_LIST_CACHE_KEY, []);
     const fallbackUsers = mergeUsers(Array.isArray(cachedUsers) ? cachedUsers : [], state.users, state.currentUser ? [state.currentUser] : []);
-    if (state.currentUser?.role !== "admin") {
+    if (!isBoss()) {
       state.users = mergeUsers(state.currentUser ? [state.currentUser] : []);
       return;
     }
@@ -9120,7 +9310,7 @@ const App = (() => {
   const renderUsers = () => {
     const list = $("#usersList");
     if (!list) return;
-    const renderSignature = JSON.stringify(state.users.map((user) => [user.id, user.full_name, user.username, user.role, user.is_active]));
+    const renderSignature = JSON.stringify(state.users.map((user) => [user.id, user.full_name, user.username, user.role, user.is_active, user.permissions, Boolean(state.userCredentialPins[user.id])]));
     if (renderSignature === state.usersRenderSignature) return;
     state.usersRenderSignature = renderSignature;
     const badge = $("#usersCountBadge");
@@ -9128,18 +9318,18 @@ const App = (() => {
     list.innerHTML = state.users.length
       ? state.users.map((user) => `
           <article class="user-card ${user.is_active === false ? "is-disabled" : ""}">
-            <div class="user-avatar">${icon(user.role === "admin" ? "shield-check" : "user-round", 20)}</div>
+            <div class="user-avatar">${icon(user.role === "boss" ? "crown" : user.role === "admin" ? "shield-check" : "user-round", 20)}</div>
             <div class="user-card-copy">
               <div class="user-card-name"><strong>${escapeHTML(user.full_name)}</strong>${String(user.id) === String(state.currentUser?.id) ? '<span class="current-user-badge">Sesión actual</span>' : ""}</div>
               <span>@${escapeHTML(user.username)}</span>
-              <div class="user-card-badges"><em>${user.role === "admin" ? "Administrador" : "Mesero"}</em><em class="${user.is_active === false ? "is-off" : "is-on"}">${user.is_active === false ? "Sin acceso" : "Acceso activo"}</em></div>
+              <div class="user-card-badges"><em>${roleLabel(user.role)}</em><em class="${user.is_active === false ? "is-off" : "is-on"}">${user.is_active === false ? "Sin acceso" : "Acceso activo"}</em>${user.role === "admin" ? `<em>${normalizedUserPermissions(user).length} secciones</em>` : ""}</div>
             </div>
             <label class="user-access-switch" title="${user.is_active === false ? "Dar acceso" : "Quitar acceso"}">
               <span>Acceso</span>
               <input type="checkbox" data-user-access="${user.id}" ${user.is_active === false ? "" : "checked"} aria-label="${user.is_active === false ? "Dar acceso" : "Quitar acceso"} a ${escapeHTML(user.full_name)}">
               <span class="user-access-track" aria-hidden="true"></span>
             </label>
-            <div class="row-actions user-row-actions"><button class="icon-btn" data-edit-user="${user.id}" title="Editar" aria-label="Editar usuario">${icon("pencil", 16)}</button><button class="icon-btn danger" data-delete-user="${user.id}" title="Eliminar" aria-label="Eliminar usuario">${icon("trash-2", 16)}</button></div>
+            <div class="row-actions user-row-actions"><button class="icon-btn user-share-access" data-share-user="${user.id}" title="Copiar enlace y credenciales" aria-label="Copiar acceso de ${escapeHTML(user.full_name)}">${icon("copy", 16)} <span>Copiar acceso</span></button><button class="icon-btn" data-edit-user="${user.id}" title="Editar" aria-label="Editar usuario">${icon("pencil", 16)}</button><button class="icon-btn danger" data-delete-user="${user.id}" data-boss-only title="Eliminar" aria-label="Eliminar usuario">${icon("trash-2", 16)}</button></div>
           </article>`).join("")
       : emptyState("Sin usuarios", "Crea el equipo operativo.", "users");
     refreshIcons();
@@ -9151,9 +9341,19 @@ const App = (() => {
     if ($("#userFormTitle")) $("#userFormTitle").textContent = "Agregar integrante";
     const label = form.querySelector('.user-save-button span');
     if (label) label.textContent = "Guardar usuario";
+    if (form.pin) form.pin.type = "password";
+    const pinToggle = form.querySelector("[data-toggle-user-pin]");
+    if (pinToggle) {
+      pinToggle.title = "Mostrar PIN";
+      pinToggle.setAttribute("aria-label", "Mostrar PIN");
+      pinToggle.innerHTML = icon("eye-off", 18);
+    }
+    refreshIcons();
+    syncUserPermissionsForm(form, ADMIN_SECTION_KEYS);
   };
 
   const toggleUserAccess = async (id, nextActive, control) => {
+    if (!isBoss()) return;
     const user = state.users.find((entry) => String(entry.id) === String(id));
     if (!user || (user.is_active !== false) === nextActive) return;
     if (String(user.id) === String(state.currentUser?.id) && !nextActive) {
@@ -9172,7 +9372,8 @@ const App = (() => {
         username: user.username,
         pin: "",
         role: user.role,
-        is_active: nextActive
+        is_active: nextActive,
+        permissions: normalizedUserPermissions(user)
       });
       saved = result.data;
       saveError = result.error;
@@ -9194,6 +9395,7 @@ const App = (() => {
   };
 
   const saveUser = async (form) => {
+    if (!isBoss()) return;
     const isEditing = Boolean(form.user_id.value);
     const fullName = form.full_name.value.trim();
     const username = form.username.value.trim().toLowerCase();
@@ -9202,14 +9404,23 @@ const App = (() => {
       toast("Revisa el usuario y usa un PIN numerico de 4 a 12 digitos.", "error", "invalid-user-fields");
       return;
     }
+    const role = form.role.value;
+    const permissions = role === "admin"
+      ? $$("input[name='permissions']:checked", form).map((input) => input.value).filter((section) => ADMIN_SECTION_KEYS.includes(section))
+      : [];
+    if (role === "admin" && !permissions.length) {
+      toast("Selecciona al menos una sección para el Administrador.", "error", "admin-without-sections");
+      return;
+    }
     const payload = {
       auth_token: state.authToken,
       id: form.user_id.value || uid(),
       full_name: fullName,
       username,
       pin,
-      role: form.role.value,
-      is_active: form.is_active.checked
+      role,
+      is_active: form.is_active.checked,
+      permissions
     };
     const submit = form.querySelector('button[type="submit"]');
     if (submit) submit.disabled = true;
@@ -9229,11 +9440,16 @@ const App = (() => {
       return;
     }
     state.users = mergeUsers(state.users.map((user) => String(user.id) === String(saved.id) ? saved : user), [saved]);
+    if (pin) {
+      state.userCredentialPins[saved.id] = pin;
+      persistUserCredentialPins();
+    }
     persistUsersCache();
     if (String(saved.id) === String(state.currentUser?.id)) {
       state.currentUser = saved;
       localStorage.setItem(ADMIN_USER_CACHE_KEY, JSON.stringify(saved));
       applyCurrentUser();
+      showAdminSection(canAccessAdminSection(state.activeAdminSection) ? state.activeAdminSection : firstAllowedAdminSection());
     }
     form.reset();
     form.user_id.value = "";
@@ -9245,16 +9461,26 @@ const App = (() => {
   };
 
   const editUser = (id) => {
+    if (!isBoss()) return;
     const user = state.users.find((entry) => entry.id === id);
     const form = $("#userForm");
     if (!user || !form) return;
     form.user_id.value = user.id;
     form.full_name.value = user.full_name || "";
     form.username.value = user.username || "";
-    form.pin.value = "";
-    form.pin.placeholder = "Dejar vacío para conservar";
+    form.pin.value = state.userCredentialPins[user.id] || "";
+    form.pin.type = "password";
+    form.pin.placeholder = form.pin.value ? "PIN actual guardado en este equipo" : "Dejar vacío para conservar";
+    const pinToggle = form.querySelector("[data-toggle-user-pin]");
+    if (pinToggle) {
+      pinToggle.title = "Mostrar PIN";
+      pinToggle.setAttribute("aria-label", "Mostrar PIN");
+      pinToggle.innerHTML = icon("eye-off", 18);
+    }
+    refreshIcons();
     form.role.value = user.role || "waiter";
     form.is_active.checked = user.is_active !== false;
+    syncUserPermissionsForm(form, user.permissions);
     if ($("#userFormEyebrow")) $("#userFormEyebrow").textContent = "Editar acceso";
     if ($("#userFormTitle")) $("#userFormTitle").textContent = user.full_name || "Usuario";
     const submitLabel = form.querySelector('.user-save-button span');
@@ -9263,6 +9489,7 @@ const App = (() => {
   };
 
   const deleteUser = async (id) => {
+    if (!canDeleteRecords()) return;
     const user = state.users.find((entry) => entry.id === id);
     if (!user) return;
     if (String(user.id) === String(state.currentUser?.id)) {
@@ -9284,6 +9511,8 @@ const App = (() => {
       return;
     }
     state.users = state.users.filter((entry) => entry.id !== id);
+    delete state.userCredentialPins[id];
+    persistUserCredentialPins();
     persistUsersCache();
     renderUsers();
     const form = $("#userForm");
@@ -9311,10 +9540,16 @@ const App = (() => {
 
   const initAdmin = async () => {
     setLoading(true);
+    state.userCredentialPins = readLocalJson(USER_CREDENTIALS_CACHE_KEY, {});
+    const loginUrl = new URL(location.href);
+    const credentialParams = ["username", "pin", "initialFullName", "initialUsername", "initialPin"];
+    const hadCredentialParams = credentialParams.some((name) => loginUrl.searchParams.has(name));
+    credentialParams.forEach((name) => loginUrl.searchParams.delete(name));
+    if (hadCredentialParams) history.replaceState(null, "", `${loginUrl.pathname}${loginUrl.search}${loginUrl.hash}`);
     const pendingScan = new URLSearchParams(location.search).get("scan") || "";
     await waitForAdminLogin();
     loadInventoryStore();
-    void loadUsers().then(renderUsers);
+    if (isBoss()) void loadUsers().then(renderUsers);
     state.soundEnabled = localStorage.getItem("waiter_alarm_enabled") === "1";
     const initialSection = pendingScan ? "service" : (location.hash.replace("#", "") || "dashboard");
     renderAdmin();
@@ -9332,7 +9567,11 @@ const App = (() => {
     showAdminSection(state.activeAdminSection || initialSection);
     renderTableFormQr();
     initRemoteStorage();
-    window.addEventListener("online", flushAppsScriptOutbox);
+    window.setTimeout(() => void refreshBackgroundReports({ force: true }), 400);
+    window.addEventListener("online", () => {
+      if (!isWaiter()) void flushAppsScriptOutbox();
+      void refreshBackgroundReports({ force: true });
+    });
     startAdminPolling();
     if (pendingScan) {
       const cleanUrl = new URL(location.href);
