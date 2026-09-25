@@ -6812,7 +6812,7 @@ const App = (() => {
         ${isPaid ? `<div class="rule"></div><div class="paid">PAGADO</div><div class="meta" style="margin-top:2mm">${payments.map((payment) => `<span>${escapeHTML(paymentMethodLabel(payment.method))}</span><strong>${money(payment.amount)}</strong>`).join("")}${invoice.paymentMethod === "cash" && Number(invoice.cashReceived || 0) ? `<span>Recibido</span><strong>${money(invoice.cashReceived)}</strong><span>Cambio</span><strong>${money(invoice.changeDue)}</strong>` : ""}${invoice.reference ? `<span>Referencia</span><strong>${escapeHTML(invoice.reference)}</strong>` : ""}</div>` : ""}
         <div class="rule"></div>
         <div class="footer">Gracias por su compra<br><strong>${escapeHTML(businessName)}</strong></div>
-        ${isPaid ? `<div class="devnex-credit"><strong>Devnex Soluciones Tecnologicas - Devnex.tech</strong><span class="devnex-contact"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"></circle></svg>3246394689</span></div>` : ""}
+        <div class="devnex-credit"><strong>Devnex Soluciones Tecnologicas - Devnex.tech</strong><span class="devnex-contact"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"></circle></svg>3246394689</span></div>
       </body></html>`;
   };
 
