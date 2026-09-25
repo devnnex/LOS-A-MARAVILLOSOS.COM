@@ -4749,11 +4749,12 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 /* Ajustes de caja, mesas y formularios solicitados */
 body[data-page="admin"] { overflow-x: hidden; }
 
-.admin-sidebar { gap: .72rem; padding-bottom: .7rem; }
+.admin-sidebar { gap: .72rem; padding-bottom: .7rem; overscroll-behavior: contain; }
 .admin-sidebar nav {
   min-height: 0;
   overflow-x: clip;
   overflow-y: auto;
+  overscroll-behavior: contain;
   contain: paint;
   scrollbar-width: thin;
   scrollbar-color: #f47745 rgba(255, 255, 255, .08);
