@@ -6753,35 +6753,37 @@ const App = (() => {
     return `<!doctype html>
       <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${isPaid ? "Factura" : "Pre-cuenta"} ${escapeHTML(receiptNumber)}</title>
       <style>
-        @page { size: 80mm auto; margin: 3mm; }
+        /* Rollo de 58 mm: la JALTECH dispone de 48 mm efectivos (384 puntos). */
+        @page { size: 58mm auto; margin: 0; }
         * { box-sizing: border-box; color: #000; text-shadow: .15px 0 #000; -webkit-text-stroke: .08px #000; }
         html { display: block; visibility: visible; min-height: 0; margin: 0; padding: 0; color: #000; background: #fff; }
-        body { display: block; visibility: visible; width: 72mm; max-width: 72mm; min-height: 0; margin: 0 auto; padding: 0 3mm; overflow-wrap: anywhere; color: #000; background: #fff; font: 900 14.5px/1.38 "Courier New", monospace; }
+        body { display: block; visibility: visible; width: 48mm; max-width: 48mm; min-height: 0; margin: 0 auto; padding: 0; overflow-wrap: anywhere; color: #000; background: #fff; font: 900 11.5px/1.38 "Courier New", monospace; }
         strong { color: #000; font-weight: 900; }
-        small { color: #000; font-size: 13.5px; font-weight: 900; }
-        .logo { margin: 2mm 0 0; text-align: center; font: 900 23px/1 Arial, sans-serif; letter-spacing: .5px; }
+        small { color: #000; font-size: 10.5px; font-weight: 900; }
+        .logo { margin: 2mm 1.5mm 0; text-align: center; font: 900 19px/1 Arial, sans-serif; letter-spacing: .4px; }
         .subtitle, .center { text-align: center; }
-        .subtitle { margin: 1mm 0 3mm; font-weight: 900; }
-        .rule { margin: 2.5mm 0; border-top: 1px dashed #000; }
-        .meta, .totals { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 1mm 2mm; align-items: start; width: 100%; padding: 0 4mm; }
+        .subtitle { margin: 1mm 1.5mm 3mm; font-weight: 900; }
+        .rule { margin: 2.5mm 1.5mm; border-top: 1px dashed #000; }
+        .meta, .totals { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 1mm 1.5mm; align-items: start; width: 100%; padding: 0 1.5mm; }
         .items { display: grid; gap: 2mm; }
-        .item { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 2mm; align-items: start; width: 100%; padding: 0 4mm; }
+        .item { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 1.5mm; align-items: start; width: 100%; padding: 0 1.5mm; break-inside: avoid; }
         .meta > *, .totals > *, .item > * { min-width: 0; }
-        .meta strong { max-width: 27mm; overflow-wrap: anywhere; text-align: right; font-size: 14.5px; }
-        .totals strong, .item > strong { white-space: nowrap; text-align: right; font-size: 14.5px; }
+        .meta strong { max-width: 22mm; overflow-wrap: anywhere; text-align: right; font-size: 11.5px; }
+        .totals strong, .item > strong { white-space: nowrap; text-align: right; font-size: 11.5px; }
         .item small { display: block; }
-        .total { margin-top: 1.5mm; font-size: 18px; font-weight: 900; }
-        .totals strong.total { font-size: 17.5px; }
-        .paid { padding: 1.5mm; border: 2px solid #000; text-align: center; font-weight: 900; }
-        .footer { margin-top: 3mm; text-align: center; }
-        .devnex-credit { display: grid; justify-items: center; gap: 1mm; margin-top: 2.5mm; padding-top: 2.5mm; border-top: 1px dashed #000; text-align: center; font-size: 10px; }
+        .total { margin-top: 1.5mm; font-size: 15px; font-weight: 900; }
+        .totals strong.total { font-size: 14.5px; }
+        p.center { padding: 0 1.5mm; }
+        .paid { margin: 0 1.5mm; padding: 1.5mm; border: 2px solid #000; text-align: center; font-weight: 900; }
+        .footer { margin: 3mm 1.5mm 0; text-align: center; }
+        .devnex-credit { display: grid; justify-items: center; gap: 1mm; margin: 2.5mm 1.5mm 0; padding-top: 2.5mm; border-top: 1px dashed #000; text-align: center; font-size: 10px; }
         .devnex-contact { display: inline-flex; align-items: center; gap: 1mm; }
         .devnex-contact svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
         .devnex-contact svg.brand-fill { fill: currentColor; stroke: none; }
-        @media screen { body { padding: 8mm 4mm; box-shadow: 0 0 22px #bbb; } }
+        @media screen { body { padding: 8mm 0; box-shadow: 0 0 22px #bbb; } }
         @media print {
           html { display: block !important; visibility: visible !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
-          body { display: block !important; visibility: visible !important; width: 72mm !important; max-width: 72mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 3mm !important; overflow: visible !important; color: #000 !important; font-weight: 900 !important; transform: translateX(-6mm); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body { display: block !important; visibility: visible !important; width: 48mm !important; max-width: 48mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; color: #000 !important; font-weight: 900 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
       </style></head><body>
         <div class="logo">${escapeHTML(businessName)}</div>
