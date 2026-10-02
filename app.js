@@ -6783,7 +6783,7 @@ const App = (() => {
         @media screen { body { padding: 8mm 0; box-shadow: 0 0 22px #bbb; } }
         @media print {
           html { display: block !important; visibility: visible !important; width: 58mm !important; max-width: 58mm !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
-          body { display: block !important; visibility: visible !important; width: 46mm !important; max-width: 46mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; color: #000 !important; font-weight: 900 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body { display: block !important; visibility: visible !important; width: 46mm !important; max-width: 46mm !important; min-height: 0 !important; margin: 0 9mm 0 3mm !important; padding: 0 !important; overflow: visible !important; color: #000 !important; font-weight: 900 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           body > *, .meta > *, .totals > *, .item > *, .devnex-credit > * { max-width: 100% !important; }
           .meta, .totals, .item { grid-template-columns: minmax(0, 1fr) 22mm !important; }
           .meta > span, .totals > span, .item > span { min-width: 0 !important; overflow-wrap: anywhere !important; word-break: break-word; }
