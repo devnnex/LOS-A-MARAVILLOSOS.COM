@@ -6753,7 +6753,7 @@ const App = (() => {
     return `<!doctype html>
       <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${isPaid ? "Factura" : "Pre-cuenta"} ${escapeHTML(receiptNumber)}</title>
       <style>
-        /* Rollo de 58 mm: la JALTECH dispone de 48 mm efectivos (384 puntos). */
+        /* Rollo de 58 mm: 46 mm seguros dentro de los 48 mm efectivos (384 puntos). */
         @page { size: 58mm auto; margin: 0; }
         * { box-sizing: border-box; color: #000; text-shadow: .15px 0 #000; -webkit-text-stroke: .08px #000; }
         html { display: block; visibility: visible; min-height: 0; margin: 0; padding: 0; color: #000; background: #fff; }
@@ -6782,8 +6782,14 @@ const App = (() => {
         .devnex-contact svg.brand-fill { fill: currentColor; stroke: none; }
         @media screen { body { padding: 8mm 0; box-shadow: 0 0 22px #bbb; } }
         @media print {
-          html { display: block !important; visibility: visible !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
-          body { display: block !important; visibility: visible !important; width: 48mm !important; max-width: 48mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; color: #000 !important; font-weight: 900 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          html { display: block !important; visibility: visible !important; width: 58mm !important; max-width: 58mm !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
+          body { display: block !important; visibility: visible !important; width: 46mm !important; max-width: 46mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; color: #000 !important; font-weight: 900 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body > *, .meta > *, .totals > *, .item > *, .devnex-credit > * { max-width: 100% !important; }
+          .meta, .totals, .item { grid-template-columns: minmax(0, 1fr) 22mm !important; }
+          .meta > span, .totals > span, .item > span { min-width: 0 !important; overflow-wrap: anywhere !important; word-break: break-word; }
+          .meta > strong { width: 100%; max-width: 100% !important; overflow-wrap: anywhere !important; word-break: break-word; }
+          .totals > strong, .item > strong { width: 100%; max-width: 100% !important; white-space: nowrap; }
+          .devnex-contact { max-width: 100% !important; flex-wrap: wrap; justify-content: center; overflow-wrap: anywhere; }
         }
       </style></head><body>
         <div class="logo">${escapeHTML(businessName)}</div>
