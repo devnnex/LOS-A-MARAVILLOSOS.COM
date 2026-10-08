@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="images/los-anos-pwa-192.png" id="appFavicon" type="image/png">
     <link rel="apple-touch-icon" href="images/los-anos-pwa-192.png" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20260924-sidebar-scroll-1">
+    <link rel="stylesheet" href="style.css?v=20261008-payment-notice-2">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -879,9 +879,22 @@
       </form>
     </dialog>
 
+    <dialog class="modal payment-notice-modal" id="paymentNoticeDialog" aria-labelledby="paymentNoticeTitle" aria-describedby="paymentNoticeWarning">
+      <div class="modal-card payment-notice-card">
+        <span class="payment-notice-icon" aria-hidden="true"><i data-lucide="triangle-alert"></i></span>
+        <span class="eyebrow">Aviso importante</span>
+        <h2 id="paymentNoticeTitle">Sistema pendiente de pago</h2>
+        <p class="payment-notice-label">Tiempo restante</p>
+        <strong class="payment-notice-countdown" id="paymentNoticeCountdown" role="timer" aria-live="off">50:00:00</strong>
+        <p class="payment-notice-warning" id="paymentNoticeWarning">Por favor, contáctese con el desarrollador.</p>
+        <p class="payment-notice-status" id="paymentNoticeStatus" role="status" hidden></p>
+        <button class="primary" id="paymentNoticeClose" type="button" disabled>Cerrar</button>
+      </div>
+    </dialog>
+
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20260924-devnex-footer-2"></script>
+    <script src="app.js?v=20261008-payment-notice-2"></script>
   </body>
 </html>

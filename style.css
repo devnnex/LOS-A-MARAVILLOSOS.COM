@@ -87,6 +87,10 @@ body.is-loading { cursor: progress; }
 
 body.admin-authenticated .admin-login { display: none; }
 
+body[data-page="admin"]:not(.admin-authenticated) .admin-sidebar,
+body[data-page="admin"]:not(.admin-authenticated) .admin-app,
+body[data-page="admin"]:not(.admin-authenticated) .admin-chat-dock { visibility: hidden; }
+
 .admin-login-card {
   position: relative;
   width: min(420px, 100%);
@@ -3127,6 +3131,59 @@ option {
   box-shadow: 0 30px 80px rgba(12, 16, 22, .28);
   animation: modalCardIn .24s ease both;
 }
+
+.modal.payment-notice-modal {
+  width: min(94vw, 580px);
+  margin: auto;
+}
+
+.modal .payment-notice-card {
+  justify-items: center;
+  gap: .65rem;
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  border-radius: 20px;
+  text-align: center;
+}
+
+.payment-notice-card h2,
+.payment-notice-card p {
+  margin: 0;
+}
+
+.payment-notice-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #fff1e7;
+  color: #cc4a1c;
+}
+
+.payment-notice-icon svg { width: 34px; height: 34px; }
+.payment-notice-card h2 { font-size: clamp(1.45rem, 4vw, 2rem); }
+.payment-notice-label { color: var(--muted); }
+
+.payment-notice-countdown {
+  color: #c53d1d;
+  font-size: clamp(2.8rem, 12vw, 5rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.05em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.payment-notice-warning {
+  color: #8c321c;
+  font-weight: 700;
+}
+
+.payment-notice-status { color: #a32626; font-weight: 700; }
+.payment-notice-card .primary { min-width: 160px; margin-top: .5rem; }
+.payment-notice-card [hidden] { display: none; }
+
+body.payment-locked .admin-sidebar,
+body.payment-locked .admin-app { pointer-events: none; }
 
 .modal-card .eyebrow {
   color: var(--accent);

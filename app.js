@@ -55,6 +55,7 @@ const SupabaseDb = (() => {
     getInitialSetupStatus: "get_initial_setup_status",
     bootstrapFirstAdmin: "bootstrap_first_admin",
     getCurrentUser: "get_current_user",
+    getPaymentDeadline: "get_payment_deadline",
     listUsers: "list_users",
     saveUser: "save_user",
     deleteUser: "delete_user",
@@ -9337,46 +9338,88 @@ const App = (() => {
   };
 
   const ADMIN_USER_CACHE_KEY = "la_licorera_17_admin_user_v1";
+  const PAYMENT_DEADLINE_STORAGE_KEY = "los_anos_payment_deadline_v1";
+  const PAYMENT_NOTICE_DURATION_MS = 50 * 60 * 60 * 1000;
 
-  const waitForAdminLogin = async () => {
-    const storedToken = localStorage.getItem("la_licorera_17_admin_token") || "";
-    let cachedUser = null;
-    try { cachedUser = JSON.parse(localStorage.getItem(ADMIN_USER_CACHE_KEY) || "null"); } catch (error) { /* cache opcional */ }
-    if (storedToken && cachedUser?.id) {
-      state.authToken = storedToken;
-      state.currentUser = cachedUser;
-      state.sb.setAuthToken(storedToken);
-      applyCurrentUser();
-      void state.sb.rpc("getCurrentUser", { auth_token: storedToken }).then(({ data, error }) => {
-        if (data) {
-          state.currentUser = data;
-          localStorage.setItem(ADMIN_USER_CACHE_KEY, JSON.stringify(data));
-          applyCurrentUser();
-          if (isBoss()) void loadUsers().then(renderUsers);
-          return;
-        }
-        if (error && /sesion vencida|autenticacion requerida|usuario inactivo/i.test(String(error.message || ""))) {
+  const initializePaymentNotice = async () => {
+    const dialog = $("#paymentNoticeDialog");
+    const countdown = $("#paymentNoticeCountdown");
+    const closeButton = $("#paymentNoticeClose");
+    const status = $("#paymentNoticeStatus");
+    if (!dialog || !countdown || !closeButton || !status) return false;
+
+    let deadline = NaN;
+    let serverNow = NaN;
+    let startedAt = 0;
+    const remainingNow = () => Number.isFinite(deadline) && Number.isFinite(serverNow)
+      ? Math.max(0, deadline - serverNow - (performance.now() - startedAt))
+      : 0;
+    const openNotice = () => { if (!dialog.open) dialog.showModal(); };
+    dialog.addEventListener("cancel", (event) => {
+      if (remainingNow() <= 0) event.preventDefault();
+    });
+    closeButton.addEventListener("click", () => {
+      if (remainingNow() > 0) dialog.close();
+    });
+    openNotice();
+
+    let response;
+    try {
+      response = await state.sb.rpc("getPaymentDeadline");
+    } catch (error) {
+      response = { error };
+    }
+    const { data } = response;
+    deadline = Date.parse(data?.deadline || "");
+    serverNow = Date.parse(data?.server_now || "");
+    if (Number.isFinite(deadline) && Number.isFinite(serverNow)) {
+      localStorage.setItem(PAYMENT_DEADLINE_STORAGE_KEY, String(deadline));
+    } else {
+      const savedDeadline = Number(localStorage.getItem(PAYMENT_DEADLINE_STORAGE_KEY));
+      deadline = savedDeadline > 0 ? savedDeadline : Date.now() + PAYMENT_NOTICE_DURATION_MS;
+      serverNow = Date.now();
+      localStorage.setItem(PAYMENT_DEADLINE_STORAGE_KEY, String(deadline));
+    }
+
+    startedAt = performance.now();
+    const updateCountdown = () => {
+      const remaining = remainingNow();
+      const totalSeconds = Math.ceil(remaining / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      countdown.textContent = [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+      const expired = remaining <= 0;
+      closeButton.hidden = expired;
+      closeButton.disabled = expired;
+      status.hidden = !expired;
+      status.textContent = expired ? "El tiempo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador." : "";
+      document.body.classList.toggle("payment-locked", expired);
+      if (expired) {
+        if (state.currentUser) {
+          const token = state.authToken;
+          state.authToken = "";
+          state.currentUser = null;
+          state.sb.setAuthToken("");
           localStorage.removeItem("la_licorera_17_admin_token");
           localStorage.removeItem(ADMIN_USER_CACHE_KEY);
-          location.reload();
+          applyCurrentUser();
+          void dbQuiet(state.sb.rpc("logout", { auth_token: token }), null);
         }
-      }).catch(() => undefined);
-      return true;
-    }
-    if (storedToken) {
-      const user = await dbQuiet(state.sb.rpc("getCurrentUser", { auth_token: storedToken }), null);
-      if (user) {
-        state.authToken = storedToken;
-        state.currentUser = user;
-        state.sb.setAuthToken(storedToken);
-        localStorage.setItem(ADMIN_USER_CACHE_KEY, JSON.stringify(user));
-        applyCurrentUser();
-        return true;
+        openNotice();
       }
-      localStorage.removeItem("la_licorera_17_admin_token");
-      localStorage.removeItem(ADMIN_USER_CACHE_KEY);
+    };
+    updateCountdown();
+    if (remainingNow() > 0) {
+      const timer = window.setInterval(() => {
+        updateCountdown();
+        if (remainingNow() <= 0) window.clearInterval(timer);
+      }, 1000);
     }
+    return remainingNow() > 0;
+  };
 
+  const waitForAdminLogin = async () => {
     setLoading(false);
     applyCurrentUser();
     refreshIcons();
@@ -9430,6 +9473,11 @@ const App = (() => {
         }), null);
         if (!session?.token || !session?.user) {
           if (errorBox) errorBox.textContent = "Usuario o PIN incorrectos.";
+          if (button) button.disabled = false;
+          return;
+        }
+        if (document.body.classList.contains("payment-locked")) {
+          void dbQuiet(state.sb.rpc("logout", { auth_token: session.token }), null);
           if (button) button.disabled = false;
           return;
         }
@@ -9784,6 +9832,8 @@ const App = (() => {
 
   const initAdmin = async () => {
     setLoading(true);
+    localStorage.removeItem("la_licorera_17_admin_token");
+    localStorage.removeItem(ADMIN_USER_CACHE_KEY);
     state.userCredentialPins = readLocalJson(USER_CREDENTIALS_CACHE_KEY, {});
     const loginUrl = new URL(location.href);
     const credentialParams = ["username", "pin", "initialFullName", "initialUsername", "initialPin"];
@@ -9791,6 +9841,10 @@ const App = (() => {
     credentialParams.forEach((name) => loginUrl.searchParams.delete(name));
     if (hadCredentialParams) history.replaceState(null, "", `${loginUrl.pathname}${loginUrl.search}${loginUrl.hash}`);
     const pendingScan = new URLSearchParams(location.search).get("scan") || "";
+    if (!await initializePaymentNotice()) {
+      setLoading(false);
+      return;
+    }
     await waitForAdminLogin();
     loadInventoryStore();
     if (isBoss()) void loadUsers().then(renderUsers);
