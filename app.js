@@ -55,7 +55,6 @@ const SupabaseDb = (() => {
     getInitialSetupStatus: "get_initial_setup_status",
     bootstrapFirstAdmin: "bootstrap_first_admin",
     getCurrentUser: "get_current_user",
-    getPaymentDeadline: "get_payment_deadline",
     listUsers: "list_users",
     saveUser: "save_user",
     deleteUser: "delete_user",
@@ -9338,8 +9337,10 @@ const App = (() => {
   };
 
   const ADMIN_USER_CACHE_KEY = "la_licorera_17_admin_user_v1";
-  const PAYMENT_DEADLINE_STORAGE_KEY = "los_anos_payment_deadline_v1";
+  // La primera publicación del contador fue el 2026-10-08 a las 10:36:19 (Bogotá).
+  const PAYMENT_NOTICE_IMPLEMENTED_AT_MS = Date.parse("2026-10-08T15:36:19Z");
   const PAYMENT_NOTICE_DURATION_MS = 50 * 60 * 60 * 1000;
+  const PAYMENT_NOTICE_DEADLINE_MS = PAYMENT_NOTICE_IMPLEMENTED_AT_MS + PAYMENT_NOTICE_DURATION_MS;
 
   const initializePaymentNotice = async () => {
     const dialog = $("#paymentNoticeDialog");
@@ -9348,11 +9349,10 @@ const App = (() => {
     const status = $("#paymentNoticeStatus");
     if (!dialog || !countdown || !closeButton || !status) return false;
 
-    let deadline = NaN;
     let serverNow = NaN;
     let startedAt = 0;
-    const remainingNow = () => Number.isFinite(deadline) && Number.isFinite(serverNow)
-      ? Math.max(0, deadline - serverNow - (performance.now() - startedAt))
+    const remainingNow = () => Number.isFinite(serverNow)
+      ? Math.max(0, PAYMENT_NOTICE_DEADLINE_MS - serverNow - (performance.now() - startedAt))
       : 0;
     const openNotice = () => { if (!dialog.open) dialog.showModal(); };
     dialog.addEventListener("cancel", (event) => {
@@ -9363,24 +9363,22 @@ const App = (() => {
     });
     openNotice();
 
-    let response;
     try {
-      response = await state.sb.rpc("getPaymentDeadline");
+      const response = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/rpc/get_initial_setup_status`, {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_CONFIG.anonKey,
+          Authorization: `Bearer ${SUPABASE_CONFIG.anonKey}`,
+          "Content-Type": "application/json"
+        },
+        body: "{}",
+        cache: "no-store"
+      });
+      serverNow = Date.parse(response.headers.get("Date") || "");
     } catch (error) {
-      response = { error };
+      // El vencimiento fijo también funciona sin conexión mediante el reloj local.
     }
-    const { data } = response;
-    deadline = Date.parse(data?.deadline || "");
-    serverNow = Date.parse(data?.server_now || "");
-    if (Number.isFinite(deadline) && Number.isFinite(serverNow)) {
-      localStorage.setItem(PAYMENT_DEADLINE_STORAGE_KEY, String(deadline));
-    } else {
-      const savedDeadline = Number(localStorage.getItem(PAYMENT_DEADLINE_STORAGE_KEY));
-      deadline = savedDeadline > 0 ? savedDeadline : Date.now() + PAYMENT_NOTICE_DURATION_MS;
-      serverNow = Date.now();
-      localStorage.setItem(PAYMENT_DEADLINE_STORAGE_KEY, String(deadline));
-    }
-
+    if (!Number.isFinite(serverNow)) serverNow = Date.now();
     startedAt = performance.now();
     const updateCountdown = () => {
       const remaining = remainingNow();
