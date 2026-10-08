@@ -9349,8 +9349,8 @@ const App = (() => {
     const status = $("#paymentNoticeStatus");
     if (!dialog || !countdown || !closeButton || !status) return false;
 
-    let serverNow = NaN;
-    let startedAt = 0;
+    let serverNow = Date.now();
+    let startedAt = performance.now();
     const remainingNow = () => Number.isFinite(serverNow)
       ? Math.max(0, PAYMENT_NOTICE_DEADLINE_MS - serverNow - (performance.now() - startedAt))
       : 0;
@@ -9361,25 +9361,6 @@ const App = (() => {
     closeButton.addEventListener("click", () => {
       if (remainingNow() > 0) dialog.close();
     });
-    openNotice();
-
-    try {
-      const response = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/rpc/get_initial_setup_status`, {
-        method: "POST",
-        headers: {
-          apikey: SUPABASE_CONFIG.anonKey,
-          Authorization: `Bearer ${SUPABASE_CONFIG.anonKey}`,
-          "Content-Type": "application/json"
-        },
-        body: "{}",
-        cache: "no-store"
-      });
-      serverNow = Date.parse(response.headers.get("Date") || "");
-    } catch (error) {
-      // El vencimiento fijo también funciona sin conexión mediante el reloj local.
-    }
-    if (!Number.isFinite(serverNow)) serverNow = Date.now();
-    startedAt = performance.now();
     const updateCountdown = () => {
       const remaining = remainingNow();
       const totalSeconds = Math.ceil(remaining / 1000);
@@ -9408,12 +9389,35 @@ const App = (() => {
       }
     };
     updateCountdown();
-    if (remainingNow() > 0) {
-      const timer = window.setInterval(() => {
-        updateCountdown();
-        if (remainingNow() <= 0) window.clearInterval(timer);
-      }, 1000);
+    openNotice();
+    let serverTimeChecked = false;
+    const timer = window.setInterval(() => {
+      updateCountdown();
+      if (serverTimeChecked && remainingNow() <= 0) window.clearInterval(timer);
+    }, 1000);
+
+    try {
+      const response = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/rpc/get_initial_setup_status`, {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_CONFIG.anonKey,
+          Authorization: `Bearer ${SUPABASE_CONFIG.anonKey}`,
+          "Content-Type": "application/json"
+        },
+        body: "{}",
+        cache: "no-store"
+      });
+      const confirmedServerNow = Date.parse(response.headers.get("Date") || "");
+      if (Number.isFinite(confirmedServerNow)) {
+        serverNow = confirmedServerNow;
+        startedAt = performance.now();
+      }
+    } catch (error) {
+      // El vencimiento fijo también funciona sin conexión mediante el reloj local.
     }
+    serverTimeChecked = true;
+    updateCountdown();
+    if (remainingNow() <= 0) window.clearInterval(timer);
     return remainingNow() > 0;
   };
 
