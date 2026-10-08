@@ -4019,6 +4019,20 @@ button:disabled {
 /* Flujo ágil y controles operativos */
 .admin-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: .55rem; flex-wrap: wrap; }
 .admin-header-actions > * { min-height: 44px; }
+.payment-notice-home {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  min-width: 172px;
+  padding: .45rem .8rem;
+  border: 1px solid #e8b7a8;
+  border-radius: 12px;
+  background: #fff4ef;
+  cursor: help;
+}
+.payment-notice-home span { color: #8c321c; font-size: .8rem; font-weight: 700; }
+.payment-notice-home strong { color: #c53d1d; font-size: 1.8rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.payment-notice-home:focus-visible { outline: 2px solid #c53d1d; outline-offset: 2px; }
 
 .modal[open] { animation-duration: .07s; }
 .modal-card { animation-duration: .09s; animation-timing-function: cubic-bezier(.2, .8, .3, 1); }

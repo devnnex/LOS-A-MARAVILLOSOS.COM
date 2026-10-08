@@ -9345,6 +9345,7 @@ const App = (() => {
   const initializePaymentNotice = async () => {
     const dialog = $("#paymentNoticeDialog");
     const countdown = $("#paymentNoticeCountdown");
+    const homeCountdown = $("#paymentNoticeHomeCountdown");
     const closeButton = $("#paymentNoticeClose");
     const status = $("#paymentNoticeStatus");
     if (!dialog || !countdown || !closeButton || !status) return false;
@@ -9367,7 +9368,9 @@ const App = (() => {
       const hours = Math.floor(totalSeconds / 3600);
       const minutes = Math.floor((totalSeconds % 3600) / 60);
       const seconds = totalSeconds % 60;
-      countdown.textContent = [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+      const timeText = [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+      countdown.textContent = timeText;
+      if (homeCountdown) homeCountdown.textContent = timeText;
       const expired = remaining <= 0;
       closeButton.hidden = expired;
       closeButton.disabled = expired;

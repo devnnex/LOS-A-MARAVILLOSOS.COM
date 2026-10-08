@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="images/los-anos-pwa-192.png" id="appFavicon" type="image/png">
     <link rel="apple-touch-icon" href="images/los-anos-pwa-192.png" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20261008-payment-notice-2">
+    <link rel="stylesheet" href="style.css?v=20261008-payment-notice-5">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -85,6 +85,10 @@
           <span class="live-status" id="realtimeStatus"><i data-lucide="wifi"></i> Conectando en vivo</span>
         </div>
         <div class="admin-header-actions">
+          <div class="payment-notice-home" title="Sistema pendiente de pago. Por favor, contáctese con el desarrollador antes de que termine el plazo; después se bloqueará el panel administrativo." aria-label="Sistema pendiente de pago. Tiempo restante" tabindex="0">
+            <span>Tiempo restante</span>
+            <strong id="paymentNoticeHomeCountdown" role="timer" aria-live="off">--:--:--</strong>
+          </div>
           <a class="primary" href="index.html"><i data-lucide="external-link"></i> Ver cliente</a>
         </div>
       </header>
@@ -895,6 +899,6 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20261008-payment-notice-4"></script>
+    <script src="app.js?v=20261008-payment-notice-5"></script>
   </body>
 </html>
