@@ -9352,6 +9352,7 @@ const App = (() => {
 
     let serverNow = Date.now();
     let startedAt = performance.now();
+    let displayedExpired = null;
     const remainingNow = () => Number.isFinite(serverNow)
       ? Math.max(0, PAYMENT_NOTICE_DEADLINE_MS - serverNow - (performance.now() - startedAt))
       : 0;
@@ -9369,27 +9370,28 @@ const App = (() => {
       const minutes = Math.floor((totalSeconds % 3600) / 60);
       const seconds = totalSeconds % 60;
       const timeText = [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
-      countdown.textContent = timeText;
-      if (homeCountdown) homeCountdown.textContent = timeText;
+      if (countdown.textContent !== timeText) countdown.textContent = timeText;
+      if (homeCountdown && homeCountdown.textContent !== timeText) homeCountdown.textContent = timeText;
       const expired = remaining <= 0;
-      closeButton.hidden = expired;
-      closeButton.disabled = expired;
-      status.hidden = !expired;
-      status.textContent = expired ? "El tiempo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador." : "";
-      document.body.classList.toggle("payment-locked", expired);
-      if (expired) {
-        if (state.currentUser) {
-          const token = state.authToken;
-          state.authToken = "";
-          state.currentUser = null;
-          state.sb.setAuthToken("");
-          localStorage.removeItem("la_licorera_17_admin_token");
-          localStorage.removeItem(ADMIN_USER_CACHE_KEY);
-          applyCurrentUser();
-          void dbQuiet(state.sb.rpc("logout", { auth_token: token }), null);
-        }
-        openNotice();
+      if (expired !== displayedExpired) {
+        displayedExpired = expired;
+        closeButton.hidden = expired;
+        closeButton.disabled = expired;
+        status.hidden = !expired;
+        status.textContent = expired ? "El tiempo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador." : "";
+        document.body.classList.toggle("payment-locked", expired);
       }
+      if (expired && state.currentUser) {
+        const token = state.authToken;
+        state.authToken = "";
+        state.currentUser = null;
+        state.sb.setAuthToken("");
+        localStorage.removeItem("la_licorera_17_admin_token");
+        localStorage.removeItem(ADMIN_USER_CACHE_KEY);
+        applyCurrentUser();
+        void dbQuiet(state.sb.rpc("logout", { auth_token: token }), null);
+      }
+      if (expired) openNotice();
     };
     updateCountdown();
     openNotice();
