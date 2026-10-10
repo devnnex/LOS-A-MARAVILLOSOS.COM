@@ -9337,18 +9337,12 @@ const App = (() => {
   };
 
   const ADMIN_USER_CACHE_KEY = "la_licorera_17_admin_user_v1";
-  // La primera publicación del contador fue el 2026-10-08 a las 10:36:19 (Bogotá).
-  const PAYMENT_NOTICE_IMPLEMENTED_AT_MS = Date.parse("2026-10-08T15:36:19Z");
-  const PAYMENT_NOTICE_DURATION_MS = 50 * 60 * 60 * 1000;
-  const PAYMENT_NOTICE_DEADLINE_MS = PAYMENT_NOTICE_IMPLEMENTED_AT_MS + PAYMENT_NOTICE_DURATION_MS;
+  // Martes 13 de octubre de 2026, 7:30 p. m. en Bogotá (UTC-5).
+  const PAYMENT_NOTICE_DEADLINE_MS = Date.parse("2026-10-14T00:30:00Z");
 
   const initializePaymentNotice = async () => {
-    const dialog = $("#paymentNoticeDialog");
-    const countdown = $("#paymentNoticeCountdown");
     const homeCountdown = $("#paymentNoticeHomeCountdown");
-    const closeButton = $("#paymentNoticeClose");
-    const status = $("#paymentNoticeStatus");
-    if (!dialog || !countdown || !closeButton || !status) return false;
+    if (!homeCountdown) return false;
 
     let serverNow = Date.now();
     let startedAt = performance.now();
@@ -9356,13 +9350,6 @@ const App = (() => {
     const remainingNow = () => Number.isFinite(serverNow)
       ? Math.max(0, PAYMENT_NOTICE_DEADLINE_MS - serverNow - (performance.now() - startedAt))
       : 0;
-    const openNotice = () => { if (!dialog.open) dialog.showModal(); };
-    dialog.addEventListener("cancel", (event) => {
-      if (remainingNow() <= 0) event.preventDefault();
-    });
-    closeButton.addEventListener("click", () => {
-      if (remainingNow() > 0) dialog.close();
-    });
     const updateCountdown = () => {
       const remaining = remainingNow();
       const totalSeconds = Math.ceil(remaining / 1000);
@@ -9370,16 +9357,13 @@ const App = (() => {
       const minutes = Math.floor((totalSeconds % 3600) / 60);
       const seconds = totalSeconds % 60;
       const timeText = [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
-      if (countdown.textContent !== timeText) countdown.textContent = timeText;
-      if (homeCountdown && homeCountdown.textContent !== timeText) homeCountdown.textContent = timeText;
+      if (homeCountdown.textContent !== timeText) homeCountdown.textContent = timeText;
       const expired = remaining <= 0;
       if (expired !== displayedExpired) {
         displayedExpired = expired;
-        closeButton.hidden = expired;
-        closeButton.disabled = expired;
-        status.hidden = !expired;
-        status.textContent = expired ? "El tiempo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador." : "";
         document.body.classList.toggle("payment-locked", expired);
+        const loginError = $("#loginError");
+        if (loginError && expired) loginError.textContent = "El plazo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador.";
       }
       if (expired && state.currentUser) {
         const token = state.authToken;
@@ -9391,10 +9375,8 @@ const App = (() => {
         applyCurrentUser();
         void dbQuiet(state.sb.rpc("logout", { auth_token: token }), null);
       }
-      if (expired) openNotice();
     };
     updateCountdown();
-    openNotice();
     let serverTimeChecked = false;
     const timer = window.setInterval(() => {
       updateCountdown();
@@ -9456,6 +9438,10 @@ const App = (() => {
     return new Promise((resolve) => {
       form?.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (document.body.classList.contains("payment-locked")) {
+          if (errorBox) errorBox.textContent = "El plazo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador.";
+          return;
+        }
         const button = submitButton || form.querySelector("[type='submit']");
         if (button) button.disabled = true;
         if (errorBox) errorBox.textContent = "";
@@ -9485,6 +9471,7 @@ const App = (() => {
         }
         if (document.body.classList.contains("payment-locked")) {
           void dbQuiet(state.sb.rpc("logout", { auth_token: session.token }), null);
+          if (errorBox) errorBox.textContent = "El plazo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador.";
           if (button) button.disabled = false;
           return;
         }

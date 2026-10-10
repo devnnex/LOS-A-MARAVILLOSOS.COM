@@ -3132,56 +3132,6 @@ option {
   animation: modalCardIn .24s ease both;
 }
 
-.modal.payment-notice-modal {
-  width: min(94vw, 580px);
-  margin: auto;
-}
-
-.modal .payment-notice-card {
-  justify-items: center;
-  gap: .65rem;
-  padding: clamp(1.5rem, 5vw, 2.5rem);
-  border-radius: 20px;
-  text-align: center;
-}
-
-.payment-notice-card h2,
-.payment-notice-card p {
-  margin: 0;
-}
-
-.payment-notice-icon {
-  display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: #fff1e7;
-  color: #cc4a1c;
-}
-
-.payment-notice-icon svg { width: 34px; height: 34px; }
-.payment-notice-card h2 { font-size: clamp(1.45rem, 4vw, 2rem); }
-.payment-notice-label { color: var(--muted); }
-
-.payment-notice-countdown {
-  color: #c53d1d;
-  font-size: clamp(2.8rem, 12vw, 5rem);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -.05em;
-  line-height: 1.1;
-  white-space: nowrap;
-}
-
-.payment-notice-warning {
-  color: #8c321c;
-  font-weight: 700;
-}
-
-.payment-notice-status { color: #a32626; font-weight: 700; }
-.payment-notice-card .primary { min-width: 160px; margin-top: .5rem; }
-.payment-notice-card [hidden] { display: none; }
-
 body.payment-locked .admin-sidebar,
 body.payment-locked .admin-app { pointer-events: none; }
 
@@ -4020,6 +3970,7 @@ button:disabled {
 .admin-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: .55rem; flex-wrap: wrap; }
 .admin-header-actions > * { min-height: 44px; }
 .payment-notice-home {
+  position: relative;
   display: grid;
   align-content: center;
   justify-items: center;
@@ -4029,10 +3980,66 @@ button:disabled {
   border-radius: 12px;
   background: #fff4ef;
   cursor: help;
+  transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease, transform .2s ease;
 }
 .payment-notice-home span { color: #8c321c; font-size: .8rem; font-weight: 700; }
 .payment-notice-home strong { color: #c53d1d; font-size: 1.8rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.payment-notice-home:focus-visible { outline: 2px solid #c53d1d; outline-offset: 2px; }
+.payment-notice-home:hover,
+.payment-notice-home:focus-visible {
+  border-color: #dc866b;
+  background: #fff0e8;
+  box-shadow: 0 10px 24px rgba(140, 50, 28, .14);
+  transform: translateY(-2px);
+}
+.payment-notice-home:focus-visible { outline: 2px solid #c53d1d; outline-offset: 3px; }
+.payment-notice-tooltip {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 12px);
+  right: 0;
+  display: grid;
+  gap: .55rem;
+  width: min(320px, calc(100vw - 2rem));
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(232, 183, 168, .65);
+  border-radius: 16px;
+  background: #fffdfb;
+  box-shadow: 0 18px 42px rgba(38, 23, 17, .2);
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity .2s ease, transform .2s ease, visibility .2s ease;
+  pointer-events: none;
+}
+.payment-notice-tooltip::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  right: 28px;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid rgba(232, 183, 168, .65);
+  border-left: 1px solid rgba(232, 183, 168, .65);
+  background: #fffdfb;
+  transform: rotate(45deg);
+}
+.payment-notice-home:hover .payment-notice-tooltip,
+.payment-notice-home:focus .payment-notice-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.payment-notice-home .payment-notice-tooltip-kicker {
+  color: #a23e23;
+  font-size: .68rem;
+  font-weight: 850;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.payment-notice-home .payment-notice-tooltip strong { color: #612819; font-size: 1.05rem; line-height: 1.3; font-variant-numeric: normal; }
+.payment-notice-home .payment-notice-tooltip span:not(.payment-notice-tooltip-kicker) { color: #743e2d; font-size: .84rem; font-weight: 650; line-height: 1.45; }
+.payment-notice-tooltip small { color: #6f625e; font-size: .76rem; line-height: 1.45; }
 
 .modal[open] { animation-duration: .07s; }
 .modal-card { animation-duration: .09s; animation-timing-function: cubic-bezier(.2, .8, .3, 1); }
