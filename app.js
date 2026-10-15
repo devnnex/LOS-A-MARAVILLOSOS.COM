@@ -614,7 +614,12 @@ const App = (() => {
     </div>
   `;
 
-  const tableLabel = (table) => table?.table_name || `Mesa ${table?.table_number || ""}`.trim();
+  const tableLabel = (table) => {
+    const name = String(table?.table_name ?? "").trim();
+    return name && !/^(null|undefined)$/i.test(name)
+      ? name
+      : `Mesa ${table?.table_number ?? ""}`.trim();
+  };
 
   const servicePointKind = (table) => {
     const name = normalizeText(table?.table_name || "");
@@ -8077,7 +8082,7 @@ const App = (() => {
     }
   };
 
-  const pdfSafeText = (value = "") => String(value)
+  const pdfSafeText = (value = "") => String(value ?? "")
     .replace(/[Ⓡⓡ]/g, "®")
     .replace(/[\r\n\t]+/g, " ")
     .trim();
@@ -8121,9 +8126,8 @@ const App = (() => {
   const drawQrPdfCard = async (pdf, table, x, y, preparedQrDataUrl = "") => {
     const cardSize = QR_PDF_SIZE_MM;
     const [red, green, blue] = pdfAccentColor();
-    const rawName = pdfSafeText(table.table_name);
     const fallbackName = `MESA ${table.table_number}`;
-    const primaryName = (rawName || fallbackName).toUpperCase();
+    const primaryName = pdfSafeText(tableLabel(table)).toUpperCase();
     const normalizedPrimary = primaryName.replace(/\s+/g, "");
     const normalizedFallback = fallbackName.replace(/\s+/g, "");
     const secondaryName = normalizedPrimary === normalizedFallback ? "ESCANEA EL CODIGO" : fallbackName;
