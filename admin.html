@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="images/los-anos-pwa-192.png" id="appFavicon" type="image/png">
     <link rel="apple-touch-icon" href="images/los-anos-pwa-192.png" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20261010-payment-notice-1">
+    <link rel="stylesheet" href="style.css?v=20261015-unlocked-qr-1">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -85,16 +85,6 @@
           <span class="live-status" id="realtimeStatus"><i data-lucide="wifi"></i> Conectando en vivo</span>
         </div>
         <div class="admin-header-actions">
-          <div class="payment-notice-home" aria-label="Sistema pendiente de pago. Tiempo restante" aria-describedby="paymentNoticeTooltip" tabindex="0">
-            <span>Tiempo restante</span>
-            <strong id="paymentNoticeHomeCountdown" role="timer" aria-live="off">--:--:--</strong>
-            <div class="payment-notice-tooltip" id="paymentNoticeTooltip" role="tooltip">
-              <span class="payment-notice-tooltip-kicker">Aviso importante</span>
-              <strong>Nos vemos el martes en la tarde.</strong>
-              <span>Plazo hasta el martes 13 de octubre a las 7:30 p. m. (hora de Bogotá).</span>
-              <small>Sistema pendiente de pago. Por favor, contáctese con el desarrollador antes de que termine el plazo.</small>
-            </div>
-          </div>
           <a class="primary" href="index.html"><i data-lucide="external-link"></i> Ver cliente</a>
         </div>
       </header>
@@ -236,7 +226,7 @@
             <div class="qr-batch-copy">
               <span class="eyebrow">Impresion profesional</span>
               <strong>QR identificados de 9 x 9 cm</strong>
-              <small>Selecciona las mesas y descarga un PDF listo para imprimir y recortar.</small>
+              <small>Selecciona las mesas y descarga un PDF en A4. Imprime al 100 % o en tamaño real para conservar los 9 x 9 cm de cada QR.</small>
             </div>
             <div class="qr-batch-actions">
               <span class="qr-selection-count" id="qrSelectionCount" aria-live="polite">0 seleccionadas</span>
@@ -892,6 +882,6 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20261010-payment-notice-1"></script>
+    <script src="app.js?v=20261015-unlocked-qr-1"></script>
   </body>
 </html>

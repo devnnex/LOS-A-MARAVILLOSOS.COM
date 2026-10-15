@@ -664,6 +664,7 @@ const App = (() => {
   const clientUrlForCode = (code) => {
     const url = new URL("index.html", window.FRONTEND_URL || location.href);
     url.search = "";
+    url.hash = "";
     url.searchParams.set("mesa", code);
     url.searchParams.set("page", "client");
     return url.href;
@@ -6403,10 +6404,14 @@ const App = (() => {
 
   const saveTable = async (form) => {
     const number = Number(form.table_number.value);
+    const id = form.table_id.value;
+    const existing = state.tables.find((table) => id
+      ? String(table.id) === String(id)
+      : Number(table.table_number) === number);
     const payload = {
       table_number: number,
       table_name: form.table_name.value.trim() || null,
-      qr_code: `mesa-${number}`,
+      qr_code: existing?.qr_code || `mesa-${number}`,
       qr_image_url: null,
       is_active: form.is_active.checked
     };
@@ -6414,8 +6419,6 @@ const App = (() => {
       toast("El numero de mesa es obligatorio.", "error");
       return;
     }
-    const id = form.table_id.value;
-    const existing = id ? null : state.tables.find((table) => Number(table.table_number) === number);
     const targetId = id || existing?.id;
     const isUpdate = Boolean(targetId);
     const recordId = targetId || uid();
@@ -8100,6 +8103,8 @@ const App = (() => {
     return fontSize;
   };
 
+  const QR_PDF_SIZE_MM = 90;
+
   const drawQrCutMarks = (pdf, x, y, size) => {
     const mark = 2;
     const offset = 0.8;
@@ -8114,7 +8119,7 @@ const App = (() => {
   };
 
   const drawQrPdfCard = async (pdf, table, x, y, preparedQrDataUrl = "") => {
-    const cardSize = 90;
+    const cardSize = QR_PDF_SIZE_MM;
     const [red, green, blue] = pdfAccentColor();
     const rawName = pdfSafeText(table.table_name);
     const fallbackName = `MESA ${table.table_number}`;
@@ -8146,7 +8151,8 @@ const App = (() => {
     fitPdfText(pdf, secondaryName, 72, 8.2, 6.5);
     pdf.text(secondaryName, x + cardSize / 2, y + 19.2, { align: "center" });
 
-    pdf.addImage(qrDataUrl, "PNG", x + 15.3, y + 21.3, 59.4, 59.4, undefined, "FAST");
+    pdf.addImage(qrDataUrl, "PNG", x + 15.3, y + 21.3, 59.4, 59.4,
+      `qr-${table.id || table.table_number}-${tableCode(table)}`, "FAST");
 
     pdf.setTextColor(74, 81, 92);
     pdf.setFont("helvetica", "bold");
@@ -8162,7 +8168,8 @@ const App = (() => {
       toast("No se pudo cargar el generador de PDF. Revisa la conexion e intenta de nuevo.", "error", "pdf-library-missing");
       return;
     }
-    const printableTables = (tables || []).filter(Boolean);
+    // Keep each label and QR together even if a background refresh updates the tables.
+    const printableTables = (tables || []).filter(Boolean).map((table) => ({ ...table }));
     if (!printableTables.length) {
       toast("Selecciona al menos una mesa para generar el PDF.", "error", "no-qr-selection");
       return;
@@ -8174,12 +8181,10 @@ const App = (() => {
       refreshIcons();
     }
     try {
-      const preparedQrs = await Promise.all(printableTables.map((table) => cachedQrDataUrl(qrTextForTable(table), 1000)));
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
       const columns = 2;
       const rows = 3;
       const cardsPerPage = columns * rows;
-      const cardSize = 90;
       const gap = 8;
       const startX = 11;
       const startY = 8;
@@ -8188,7 +8193,8 @@ const App = (() => {
         const pageIndex = index % cardsPerPage;
         const column = pageIndex % columns;
         const row = Math.floor(pageIndex / columns);
-        await drawQrPdfCard(pdf, printableTables[index], startX + column * (cardSize + gap), startY + row * (cardSize + gap), preparedQrs[index]);
+        await drawQrPdfCard(pdf, printableTables[index],
+          startX + column * (QR_PDF_SIZE_MM + gap), startY + row * (QR_PDF_SIZE_MM + gap));
       }
       const filename = printableTables.length === 1
         ? `qr-mesa-${printableTables[0].table_number}-9x9.pdf`
@@ -9337,77 +9343,6 @@ const App = (() => {
   };
 
   const ADMIN_USER_CACHE_KEY = "la_licorera_17_admin_user_v1";
-  // Martes 13 de octubre de 2026, 7:30 p. m. en Bogotá (UTC-5).
-  const PAYMENT_NOTICE_DEADLINE_MS = Date.parse("2026-10-14T00:30:00Z");
-
-  const initializePaymentNotice = async () => {
-    const homeCountdown = $("#paymentNoticeHomeCountdown");
-    if (!homeCountdown) return false;
-
-    let serverNow = Date.now();
-    let startedAt = performance.now();
-    let displayedExpired = null;
-    const remainingNow = () => Number.isFinite(serverNow)
-      ? Math.max(0, PAYMENT_NOTICE_DEADLINE_MS - serverNow - (performance.now() - startedAt))
-      : 0;
-    const updateCountdown = () => {
-      const remaining = remainingNow();
-      const totalSeconds = Math.ceil(remaining / 1000);
-      const hours = Math.floor(totalSeconds / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      const seconds = totalSeconds % 60;
-      const timeText = [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
-      if (homeCountdown.textContent !== timeText) homeCountdown.textContent = timeText;
-      const expired = remaining <= 0;
-      if (expired !== displayedExpired) {
-        displayedExpired = expired;
-        document.body.classList.toggle("payment-locked", expired);
-        const loginError = $("#loginError");
-        if (loginError && expired) loginError.textContent = "El plazo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador.";
-      }
-      if (expired && state.currentUser) {
-        const token = state.authToken;
-        state.authToken = "";
-        state.currentUser = null;
-        state.sb.setAuthToken("");
-        localStorage.removeItem("la_licorera_17_admin_token");
-        localStorage.removeItem(ADMIN_USER_CACHE_KEY);
-        applyCurrentUser();
-        void dbQuiet(state.sb.rpc("logout", { auth_token: token }), null);
-      }
-    };
-    updateCountdown();
-    let serverTimeChecked = false;
-    const timer = window.setInterval(() => {
-      updateCountdown();
-      if (serverTimeChecked && remainingNow() <= 0) window.clearInterval(timer);
-    }, 1000);
-
-    try {
-      const response = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/rpc/get_initial_setup_status`, {
-        method: "POST",
-        headers: {
-          apikey: SUPABASE_CONFIG.anonKey,
-          Authorization: `Bearer ${SUPABASE_CONFIG.anonKey}`,
-          "Content-Type": "application/json"
-        },
-        body: "{}",
-        cache: "no-store"
-      });
-      const confirmedServerNow = Date.parse(response.headers.get("Date") || "");
-      if (Number.isFinite(confirmedServerNow)) {
-        serverNow = confirmedServerNow;
-        startedAt = performance.now();
-      }
-    } catch (error) {
-      // El vencimiento fijo también funciona sin conexión mediante el reloj local.
-    }
-    serverTimeChecked = true;
-    updateCountdown();
-    if (remainingNow() <= 0) window.clearInterval(timer);
-    return remainingNow() > 0;
-  };
-
   const waitForAdminLogin = async () => {
     setLoading(false);
     applyCurrentUser();
@@ -9438,10 +9373,6 @@ const App = (() => {
     return new Promise((resolve) => {
       form?.addEventListener("submit", async (event) => {
         event.preventDefault();
-        if (document.body.classList.contains("payment-locked")) {
-          if (errorBox) errorBox.textContent = "El plazo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador.";
-          return;
-        }
         const button = submitButton || form.querySelector("[type='submit']");
         if (button) button.disabled = true;
         if (errorBox) errorBox.textContent = "";
@@ -9466,12 +9397,6 @@ const App = (() => {
         }), null);
         if (!session?.token || !session?.user) {
           if (errorBox) errorBox.textContent = "Usuario o PIN incorrectos.";
-          if (button) button.disabled = false;
-          return;
-        }
-        if (document.body.classList.contains("payment-locked")) {
-          void dbQuiet(state.sb.rpc("logout", { auth_token: session.token }), null);
-          if (errorBox) errorBox.textContent = "El plazo terminó. El sistema está bloqueado. Por favor, contáctese con el desarrollador.";
           if (button) button.disabled = false;
           return;
         }
@@ -9835,10 +9760,6 @@ const App = (() => {
     credentialParams.forEach((name) => loginUrl.searchParams.delete(name));
     if (hadCredentialParams) history.replaceState(null, "", `${loginUrl.pathname}${loginUrl.search}${loginUrl.hash}`);
     const pendingScan = new URLSearchParams(location.search).get("scan") || "";
-    if (!await initializePaymentNotice()) {
-      setLoading(false);
-      return;
-    }
     await waitForAdminLogin();
     loadInventoryStore();
     if (isBoss()) void loadUsers().then(renderUsers);
