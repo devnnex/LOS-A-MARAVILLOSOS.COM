@@ -12,7 +12,8 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="images/los-anos-pwa-192.png" id="appFavicon" type="image/png">
     <link rel="apple-touch-icon" href="images/los-anos-pwa-192.png" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20260918-tip-payment-1">
+    <link rel="stylesheet" href="style.css?v=20261016-cards-1">
+    <link rel="stylesheet" href="menu-cards.css?v=20261016-menu-controls-5">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="client">
@@ -49,13 +50,14 @@
           <i data-lucide="receipt-text"></i>
           <span>Ver cuenta</span>
         </button>
+        <button class="request-btn" id="openMenuCards" type="button" aria-haspopup="dialog" aria-controls="menuCardsViewer"><i data-lucide="book-open"></i><span>Carta</span></button>
         <button class="request-btn" id="songModeToggle" type="button" data-song-request>
           <i data-lucide="music-2"></i>
           <span>Pedir canción</span>
         </button>
       </section>
 
-      <section class="client-section">
+      <section class="client-section" id="clientChatSection">
         <div class="assistant-panel">
           <div class="assistant-head">
           <div>
@@ -77,7 +79,13 @@
       <section class="client-section" id="billChat" hidden></section>
     </main>
 
+    <dialog class="menu-cards-viewer" id="menuCardsViewer" aria-labelledby="menuViewerTitle">
+      <header class="menu-viewer-head"><div><span class="eyebrow">La carta de tu mesa</span><h2 id="menuViewerTitle">Carta</h2><small id="menuViewerCounter" aria-live="polite"></small></div><div class="menu-viewer-tools"><button class="icon-btn" id="menuViewerZoom" type="button" aria-label="Ampliar imagen" aria-pressed="false"><i data-lucide="zoom-in"></i></button><button class="icon-btn" id="closeMenuCards" type="button" aria-label="Cerrar carta"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div></header>
+      <div class="menu-viewer-stage" id="menuViewerStage"><button class="menu-viewer-arrow previous" id="previousMenuCard" type="button" aria-label="Carta anterior"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"/></svg></button><div class="menu-viewer-image-wrap" id="menuViewerImageWrap"><img id="menuViewerImage" alt="" hidden><p id="menuViewerStatus" role="status" aria-live="polite">Cargando cartas…</p></div><button class="menu-viewer-arrow next" id="nextMenuCard" type="button" aria-label="Siguiente carta"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"/></svg></button></div>
+      <footer class="menu-viewer-footer"><div id="menuViewerDots" role="group" aria-label="Elegir carta"></div><small>Explora la carta y haz tu pedido por el chat.</small></footer>
+    </dialog>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="app.js?v=20261015-qr-table-names-2"></script>
+    <script src="menu-cards.js?v=20261016-menu-controls-5"></script>
+    <script src="app.js?v=20261016-menu-controls-7"></script>
   </body>
 </html>

@@ -522,8 +522,13 @@ const App = (() => {
   const uid = () =>
     crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+  let iconRefreshFrame = null;
   const refreshIcons = () => {
-    if (window.lucide) window.lucide.createIcons();
+    if (!window.lucide || iconRefreshFrame !== null) return;
+    iconRefreshFrame = window.requestAnimationFrame(() => {
+      iconRefreshFrame = null;
+      window.lucide?.createIcons();
+    });
   };
 
   const setLoading = (isLoading) => {
@@ -732,9 +737,11 @@ const App = (() => {
   const setRealtimeStatus = (status, tone = "connecting") => {
     const badge = $("#realtimeStatus");
     if (!badge) return;
-    badge.className = `live-status ${tone}`;
-    badge.innerHTML = `${icon(tone === "live" ? "wifi" : "wifi-off", 15)} ${status}`;
-    refreshIcons();
+    // El respaldo funciona en segundo plano sin cambiar el aviso visible en Inicio.
+    if (badge.dataset.connectionStatus === tone && badge.title === status) return;
+    badge.dataset.connectionStatus = tone;
+    badge.title = status;
+    badge.setAttribute("aria-label", `Sincronización automática: ${status}`);
   };
 
   const isBoss = (user = state.currentUser) => user?.role === "boss";
@@ -786,9 +793,11 @@ const App = (() => {
         if (section === "accounts") renderAccounts();
         if (section === "tips") renderTips();
         if (section === "service") renderServiceTables();
+        if (section === "brand") renderBusinessForm();
         if (section === "menu") {
           renderTableManager();
           renderTableFormQr();
+          renderMenuManager();
         }
         if (section === "inventory") renderInventory();
         if (section === "movements") {
@@ -833,7 +842,7 @@ const App = (() => {
   const refreshTableLock = () => {
     if (!state.currentTable) return;
     const hasAccount = state.sessionItems.some(
-      (item) => item.status !== "cancelled" && Number(item.quantity || 0) > 0
+      (item) => (item.status === "served" || !item.status) && Number(item.quantity || 0) > 0
     );
     state.tableAccountStatus = hasAccount ? "active" : "empty";
     state.tableAccountTotal = state.sessionItems
@@ -843,7 +852,7 @@ const App = (() => {
     if (state.currentTable) renderTablePicker();
   };
 
-  const ensureOpenSession = async (tableId) => {
+  const ensureOpenSession = async (tableId, { create = true, updateState = true } = {}) => {
     let session = await db(
       state.sb
         .from("table_sessions")
@@ -855,14 +864,16 @@ const App = (() => {
         .maybeSingle(),
       null
     );
-    if (!session) {
+    if (!session && create) {
       session = await db(
         state.sb.from("table_sessions").insert({ table_id: tableId, status: "open" }).select("*").single(),
         null
       );
     }
-    if (state.currentSession?.id !== session?.id) state.clientSnapshotSignature = "";
-    state.currentSession = session;
+    if (updateState) {
+      if (state.currentSession?.id !== session?.id) state.clientSnapshotSignature = "";
+      state.currentSession = session;
+    }
     return session;
   };
 
@@ -878,17 +889,20 @@ const App = (() => {
     });
   };
 
-  const hydrateSelectedTable = async (tableId) => {
+  const hydrateSelectedTable = async (tableId, { background = false } = {}) => {
     const table = state.currentTable;
     if (!table || table.id !== tableId) return null;
+    const previousSessionId = state.currentSession?.id;
     const token = ++state.clientHydrationToken;
-    state.tableAccountStatus = "checking";
-    state.tableAccountTotal = 0;
-    renderTablePicker();
+    if (!background) {
+      state.tableAccountStatus = "checking";
+      state.tableAccountTotal = 0;
+      renderTablePicker();
+    }
     const snapshot = await dbQuiet(state.sb.rpc("getClientTableState", {
       table_id: table.id,
       table_access_code: tableCode(table),
-      ensure_session: true
+      ensure_session: false
     }), null);
     if (token !== state.clientHydrationToken || state.currentTable?.id !== tableId) return null;
     if (snapshot?.session) {
@@ -897,15 +911,24 @@ const App = (() => {
       state.clientRequests = snapshot.requests || [];
       state.clientSnapshotSignature = "";
     } else {
-      const session = await ensureOpenSession(tableId);
-      if (token !== state.clientHydrationToken || state.currentTable?.id !== tableId || !session) return null;
-      await loadClientSnapshot();
+      let session = snapshot ? null : await ensureOpenSession(tableId, { create: false, updateState: false });
+      if (token !== state.clientHydrationToken || state.currentTable?.id !== tableId) return null;
+      // Una lectura anterior al primer mensaje no debe borrar la sesión que acaba de abrir el chat.
+      if (state.currentSession?.table_id === tableId && state.currentSession.id !== previousSessionId) session = state.currentSession;
+      state.currentSession = session;
+      state.clientSnapshotSignature = "";
+      if (session) await loadClientSnapshot();
+      else {
+        state.sessionItems = [];
+        state.clientRequests = [];
+        state.localBillOpen = false;
+      }
     }
     reconcilePendingBillsForTable(state.clientRequests);
     refreshTableLock();
     renderAccount();
     renderBillChat();
-    subscribeClient();
+    if (state.currentSession || !state.clientChannel) subscribeClient();
     return state.currentSession;
   };
 
@@ -1235,9 +1258,15 @@ const App = (() => {
       cover.style.backgroundImage = `linear-gradient(180deg, rgba(12,13,17,.40), rgba(12,13,17,.88)), url('${state.business.cover_url}')`;
     }
     if (state.business) void syncPwaBranding();
+    if (state.assistantMode === "song" && state.business?.client_song_enabled === false) {
+      state.assistantMode = "bar";
+      renderAssistant();
+    }
+    window.MenuCards?.syncFeatures();
   };
 
   const renderTablePicker = () => {
+    void window.MenuCards?.prepareForTable().catch(() => {});
     const picker = $("#tablePicker");
     if (!picker) return;
     if (state.currentTable) {
@@ -1579,6 +1608,12 @@ const App = (() => {
   const renderBillChat = () => {
     const box = $("#billChat");
     if (!box) return;
+    if (state.business?.client_bill_enabled === false) {
+      state.localBillOpen = false;
+      box.hidden = true; box.innerHTML = "";
+      document.body.classList.remove("receipt-open");
+      return;
+    }
     if (box.classList.contains("is-closing")) return;
     const isLocalBill = state.localBillOpen && Boolean(state.currentTable);
     const localSession = isLocalBill ? {
@@ -1686,6 +1721,7 @@ const App = (() => {
   };
 
   const showCurrentBill = async () => {
+    if (state.business?.client_bill_enabled === false) return;
     if (!state.currentTable) {
       toast("Selecciona tu mesa primero.", "error");
       return;
@@ -1694,6 +1730,7 @@ const App = (() => {
     button?.classList.add("is-pending");
     try {
       await hydrateSelectedTable(state.currentTable.id);
+      if (state.business?.client_bill_enabled === false) return;
       state.localBillOpen = true;
       renderBillChat();
     } finally {
@@ -2350,7 +2387,9 @@ const App = (() => {
       : "Ej: Quiero una canasta de cerveza";
     if (toggle) {
       toggle.classList.toggle("is-active", songMode);
-      toggle.innerHTML = songMode ? `${icon("message-circle", 22)}<span>Volver al chat</span>` : `${icon("music-2", 22)}<span>Pedir canción</span>`;
+      toggle.innerHTML = songMode
+        ? state.business?.client_chat_enabled === false ? `${icon("x", 22)}<span>Cerrar canción</span>` : `${icon("message-circle", 22)}<span>Volver al chat</span>`
+        : `${icon("music-2", 22)}<span>Pedir canción</span>`;
     }
     const activeThread = (state.assistantThreads[state.assistantMode] || [])
       .filter((message) => songMode || !state.adminChatActive || message.role !== "bot");
@@ -2388,10 +2427,12 @@ const App = (() => {
   };
 
   const activateSongRequestMode = () => {
+    if (window.MenuCards && !window.MenuCards.enabled("client_song_enabled")) return;
     state.assistantMode = state.assistantMode === "song" ? "bar" : "song";
     if (state.assistantMode === "song" && !state.assistantThreads.song.length) state.assistantThreads.song = [{ role: "bot", text: "Escribe el nombre exacto de la canción y el artista para solicitarla.", local: true }];
     state.assistantMessages = state.assistantThreads[state.assistantMode];
     renderAssistant();
+    window.MenuCards?.syncFeatures();
     $(".assistant-panel")?.scrollIntoView({ block: "center", behavior: "auto" });
     window.requestAnimationFrame(() => $("#assistantInput")?.focus({ preventScroll: true }));
   };
@@ -2562,6 +2603,7 @@ const App = (() => {
   });
 
   const loadChatMessages = async (sessionId = state.currentSession?.id, table = state.currentTable) => {
+    if (state.page === "client" && state.business?.client_chat_enabled === false) return false;
     if (!sessionId) return false;
     const result = await dbQuiet(state.sb.rpc("listChatMessages", chatRpcPayload(sessionId, table)), null);
     const messages = Array.isArray(result) ? result : result?.messages;
@@ -2873,6 +2915,7 @@ const App = (() => {
   };
 
   const handleAssistantMessage = async (message) => {
+    if (window.MenuCards && !window.MenuCards.enabled("client_chat_enabled")) return;
     const text = message.trim();
     if (!text) return;
     assistantSay("user", text);
@@ -2956,6 +2999,7 @@ const App = (() => {
   };
 
   const handleSongRequest = async (message) => {
+    if (window.MenuCards && !window.MenuCards.enabled("client_song_enabled")) return;
     const song = String(message || "").trim().replace(/\s+/g, " ").slice(0, 180);
     if (!song) return;
     assistantSay("user", song);
@@ -2997,6 +3041,7 @@ const App = (() => {
   };
 
   const createRequest = (type, message = "") => {
+    if (type === "waiter" && window.MenuCards && !window.MenuCards.enabled("client_waiter_enabled")) return null;
     if (type === "bill") return showCurrentBill();
     if (!state.currentTable) {
       toast("Selecciona tu mesa primero.", "error");
@@ -3149,8 +3194,8 @@ const App = (() => {
   };
 
   const subscribeClient = () => {
-    if (!state.currentSession) return;
-    const sessionId = String(state.currentSession.id);
+    if (!state.currentTable) return;
+    const sessionId = String(state.currentSession?.id || "");
     if (state.clientChatSoundSessionId !== sessionId) {
       state.clientChatSoundSessionId = sessionId;
       state.clientChatInitialized = false;
@@ -3160,9 +3205,14 @@ const App = (() => {
     if (state.clientChannel) state.sb.removeChannel(state.clientChannel);
     clearInterval(state.chatPollTimer);
     const refresh = async () => {
-      if (state.clientSyncBusy || !state.currentSession) return;
+      if (state.clientSyncBusy || !state.currentTable) return;
+      void window.MenuCards?.prepareForTable().catch(() => {});
       state.clientSyncBusy = true;
       try {
+        if (!state.currentSession) {
+          await hydrateSelectedTable(state.currentTable.id, { background: true });
+          return;
+        }
         if (await loadClientSnapshot()) {
           renderAccount();
           renderBillChat();
@@ -3652,7 +3702,7 @@ const App = (() => {
   const renderAdminShell = () => {
     renderBrand();
     syncTipFeatureVisibility();
-    const tableSessions = state.sessions.filter((session) => !isLocalWalkInSession(session));
+    const tableSessions = state.sessions.filter((session) => !isLocalWalkInSession(session) && sessionHasConsumption(session));
     const totals = {
       tables: normalTables().filter((table) => table.is_active).length,
       alerts: activeRequests().length,
@@ -3695,6 +3745,14 @@ const App = (() => {
   };
 
   const sessionTotal = (session) => sessionTotals(session).total;
+
+  const sessionHasConsumption = (session) => {
+    if (!session || session.status !== "open") return false;
+    if (Array.isArray(session.session_items)) {
+      return session.session_items.some((item) => (item.status === "served" || !item.status) && Number(item.quantity || 0) > 0);
+    }
+    return Number(session.subtotal || 0) > 0 || Number(session.total || 0) > 0;
+  };
 
   const newestSessionItems = (session) => [...(session?.session_items || [])]
     .filter((item) => item.status !== "cancelled")
@@ -3804,8 +3862,8 @@ const App = (() => {
     return filterTablesBySmartSearch(tables, searchValue).map((table) => {
       const session = state.sessions.find((entry) => entry.table_id === table.id && entry.status === "open");
       const pending = state.requests.filter((request) => request.table_id === table.id && request.status === "pending").length;
-      const occupied = Boolean(session);
-      return `<button class="compact-table-tile ${occupied ? "occupied" : "free"} ${isOutdoorTable(table) ? "outdoor" : "indoor"} ${pending ? "needs-attention" : ""}" type="button" data-open-table="${escapeHTML(table.id)}" title="Agregar consumo en ${escapeHTML(tableLabel(table))}"><span class="table-furniture-icon">${icon("armchair", 23)}</span><strong>M${escapeHTML(table.table_number)}</strong>${occupied ? `<small>${money(sessionTotal(session))}</small>` : "<small>Libre</small>"}${pending ? `<em>${pending}</em>` : ""}</button>`;
+      const occupied = sessionHasConsumption(session);
+      return `<button class="compact-table-tile ${occupied ? "occupied" : "free"} ${isOutdoorTable(table) ? "outdoor" : "indoor"}" type="button" data-open-table="${escapeHTML(table.id)}" title="Agregar consumo en ${escapeHTML(tableLabel(table))}"><span class="table-furniture-icon">${icon("armchair", 23)}</span><strong>M${escapeHTML(table.table_number)}</strong>${occupied ? `<small>${money(sessionTotal(session))}</small>` : "<small>Libre</small>"}${pending ? `<em>${pending}</em>` : ""}</button>`;
     }).join("");
   };
 
@@ -3859,7 +3917,7 @@ const App = (() => {
     const kindLabel = state.activeServiceZone === "bar" ? "barra" : "matera";
     box.innerHTML = points.length ? points.map((table) => {
       const session = state.sessions.find((entry) => String(entry.table_id) === String(table.id) && entry.status === "open");
-      const occupied = Boolean(session);
+      const occupied = sessionHasConsumption(session);
       return `<article class="service-point-tile ${occupied ? "occupied" : "free"}">
         <button type="button" data-open-table="${escapeHTML(table.id)}" title="Atender ${escapeHTML(tableLabel(table))}">
           ${icon(state.activeServiceZone === "bar" ? "wine" : "flower-2", 22)}
@@ -3905,6 +3963,7 @@ const App = (() => {
   };
 
   const renderOutdoorTableConfigurator = () => {
+    if (window.MenuCards?.renderTableSelector()) return;
     const selector = $("#outdoorTableSelector");
     const from = $("#outdoorTableFrom");
     const to = $("#outdoorTableTo");
@@ -3990,6 +4049,7 @@ const App = (() => {
       box?.classList.toggle("has-file", hasImage);
     });
     renderOutdoorTableConfigurator();
+    window.MenuCards?.renderFeatureForm(form);
   };
 
   const renderTableManager = () => {
@@ -5958,12 +6018,36 @@ const App = (() => {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  let tableQrObserver = null;
+  let tableQrRenderToken = 0;
   const renderGeneratedTableQrs = () => {
-    $$("[data-table-qr]").forEach((target) => {
-      const table = state.tables.find((entry) => entry.id === target.dataset.tableQr);
-      if (!table) return;
-      renderQrImage(target, qrTextForTable(table), `QR ${tableLabel(table)}`);
-    });
+    tableQrObserver?.disconnect();
+    const token = ++tableQrRenderToken;
+    const pending = [];
+    let running = false;
+    const next = async () => {
+      if (token !== tableQrRenderToken) return;
+      const target = pending.shift();
+      if (!target) { running = false; return; }
+      if (target.isConnected) {
+        const table = state.tables.find((entry) => String(entry.id) === target.dataset.tableQr);
+        if (table) await renderQrImage(target, qrTextForTable(table), `QR ${tableLabel(table)}`);
+      }
+      window.requestAnimationFrame(next);
+    };
+    const enqueue = (target) => {
+      pending.push(target);
+      if (!running) { running = true; window.requestAnimationFrame(next); }
+    };
+    // El listado responde primero; los QR se dibujan conforme entran en pantalla.
+    if ("IntersectionObserver" in window) {
+      tableQrObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) { tableQrObserver.unobserve(entry.target); enqueue(entry.target); }
+        }
+      }, { rootMargin: "120px" });
+      $$("[data-table-qr]").forEach((target) => tableQrObserver.observe(target));
+    } else $$("[data-table-qr]").forEach(enqueue);
   };
 
   const renderTableFormQr = () => {
@@ -6056,7 +6140,7 @@ const App = (() => {
   const renderAccounts = () => {
     const box = $("#accountsPanel");
     if (!box) return;
-    const accountSessions = state.sessions.filter((session) => !isLocalWalkInSession(session));
+    const accountSessions = state.sessions.filter((session) => !isLocalWalkInSession(session) && sessionHasConsumption(session));
     const renderSignature = JSON.stringify([
       state.business?.tax_rate,
       state.business?.service_fee,
@@ -6153,19 +6237,19 @@ const App = (() => {
 
   const renderAdmin = () => {
     renderAdminShell();
-    renderAlerts();
-    renderTables();
-    renderBusinessForm();
-    renderTableManager();
     renderWaiterTableSelect();
-    renderServiceTables();
-    renderMenuManager();
-    renderInventory();
-    renderInventoryMovements();
-    renderIncomeReport();
-    renderAccounts();
-    renderTips();
-    renderAdminAi();
+    const section = state.activeAdminSection || "dashboard";
+    if (section === "dashboard") { renderAlerts(); renderTables(); }
+    if (section === "brand") renderBusinessForm();
+    if (section === "menu") { renderTableManager(); renderMenuManager(); }
+    if (section === "service") renderServiceTables();
+    if (section === "inventory") renderInventory();
+    if (section === "movements") renderInventoryMovements();
+    if (section === "income") renderIncomeReport();
+    if (section === "accounts") renderAccounts();
+    if (section === "tips") renderTips();
+    if (section === "assistant") renderAdminAi();
+    if (section === "users") renderUsers();
   };
 
   const renderAdminLive = () => {
@@ -6175,6 +6259,13 @@ const App = (() => {
     if (state.activeAdminSection === "service") renderServiceTables();
     if (state.activeAdminSection === "accounts") renderAccounts();
     if (state.activeAdminSection === "tips") renderTips();
+    if (state.activeAccountDetailId && $("#accountDetailDialog")?.open) renderAccountDetail();
+    if ($("#consumptionDialog")?.open) {
+      const sessionId = $("#consumptionForm")?.session_id.value;
+      const session = state.sessions.find((entry) => entry.id === sessionId);
+      renderTableConsumptionPreview(session);
+      renderLastConsumptionTime(session);
+    }
   };
 
   const updateTipSettingsFromForm = (form, { toggleChanged = false, renderForm = true } = {}) => {
@@ -6294,6 +6385,7 @@ const App = (() => {
     const originalTipSettings = { ...state.tipSettings };
     const originalTables = state.tables.map((table) => ({ ...table }));
     if (!updateTipSettingsFromForm(form, { renderForm: false })) return;
+    if (window.MenuCards && !(await window.MenuCards.savePendingCards())) return;
     const outdoorIds = state.outdoorTableDraftIds instanceof Set
       ? new Set(state.outdoorTableDraftIds)
       : new Set(normalTables().filter(isOutdoorTable).map((table) => String(table.id)));
@@ -6306,7 +6398,8 @@ const App = (() => {
       logo_url: form.logo_url.value.trim(),
       cover_url: form.cover_url.value.trim(),
       tips_enabled: state.tipSettings.enabled === true,
-      tip_percentage: Number(state.tipSettings.percentage || 10)
+      tip_percentage: Number(state.tipSettings.percentage || 10),
+      ...window.MenuCards?.featurePayload(form)
     };
     state.business = { ...(state.business || {}), ...payload };
     state.tables = state.tables.map((table) => isServicePoint(table)
@@ -6335,6 +6428,7 @@ const App = (() => {
     }
     if (savedBusiness && savedTables) {
       state.business = savedBusiness;
+      window.MenuCards?.clearBrandDrafts(savedBusiness);
       applyBusinessTipSettings();
       if (Array.isArray(savedTables.tables)) {
         const zones = new Map(savedTables.tables.map((table) => [String(table.id), table.is_outdoor === true]));
@@ -6361,7 +6455,8 @@ const App = (() => {
         logo_url: originalBusiness.logo_url || "",
         cover_url: originalBusiness.cover_url || "",
         tips_enabled: originalTipSettings.enabled === true,
-        tip_percentage: Number(originalTipSettings.percentage || 10)
+        tip_percentage: Number(originalTipSettings.percentage || 10),
+        ...window.MenuCards?.originalFeaturePayload(originalBusiness)
       };
       await retryQuiet(
         () => state.sb.from("business_settings").upsert(rollbackPayload, { onConflict: "is_primary" }).select("*").single(),
@@ -6401,6 +6496,7 @@ const App = (() => {
     const { data } = state.sb.storage.from("brand-assets").getPublicUrl(path);
     const input = $(`[name="${fieldName}"]`);
     if (input) input.value = data.publicUrl;
+    window.MenuCards?.previewBrandAsset(fieldName, data.publicUrl);
     if (status) status.textContent = "Imagen cargada. Guarda para aplicar.";
     box?.classList.remove("is-uploading");
     box?.classList.add("has-file");
@@ -6740,7 +6836,7 @@ const App = (() => {
       return null;
     }
     state.optimisticSessionStates.set(id, { mode: "remove", session: { ...session, ...saved } });
-    await dbQuiet(state.sb.from("service_requests").update({ status: "resolved" }).eq("session_id", id), null);
+    void dbQuiet(state.sb.from("service_requests").update({ status: "resolved" }).eq("session_id", id), null);
     return { session, saved, totals };
   };
 
@@ -6842,41 +6938,11 @@ const App = (() => {
     popup.document.open();
     popup.document.write(thermalReceiptHtml(session, invoice));
     popup.document.close();
-    const receiptDocument = popup.document;
-    const waitForReceiptLoad = () => {
-      if (receiptDocument.readyState === "complete") return Promise.resolve();
-      return new Promise((resolve) => {
-        const complete = () => {
-          if (receiptDocument.readyState !== "complete") return;
-          popup.removeEventListener("load", complete);
-          receiptDocument.removeEventListener("readystatechange", complete);
-          resolve();
-        };
-        popup.addEventListener("load", complete, { once: true });
-        receiptDocument.addEventListener("readystatechange", complete);
-      });
-    };
-    const printWhenReady = async () => {
-      await waitForReceiptLoad();
-      try {
-        if (receiptDocument.fonts?.ready) await receiptDocument.fonts.ready;
-        const images = Array.from(receiptDocument.images || []);
-        await Promise.all(images.map((image) => {
-          if (image.complete) return image.decode?.().catch(() => undefined);
-          return new Promise((resolve) => {
-            image.addEventListener("load", resolve, { once: true });
-            image.addEventListener("error", resolve, { once: true });
-          });
-        }));
-        await new Promise((resolve) => popup.requestAnimationFrame(() => popup.requestAnimationFrame(resolve)));
-      } finally {
-        if (!popup.closed) {
-          popup.focus();
-          popup.print();
-        }
-      }
-    };
-    void printWhenReady();
+    // El recibo usa estilos, texto y SVG locales: no necesita esperar red ni fuentes.
+    popup.focus();
+    popup.setTimeout(() => {
+      if (!popup.closed) popup.print();
+    }, 0);
     return true;
   };
 
@@ -7229,6 +7295,10 @@ const App = (() => {
     }
     const shouldPrint = submitter?.value === "print";
     const receiptWindow = shouldPrint ? window.open("", "_blank", "width=420,height=720") : null;
+    if (receiptWindow) {
+      receiptWindow.document.write('<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Preparando factura</title><style>body{margin:0;min-height:100vh;display:grid;place-content:center;gap:12px;text-align:center;font:16px system-ui;color:#243247;background:#f6f8fb}p{color:#6b7b90;font-size:14px}span{width:28px;height:28px;margin:auto;border:3px solid #f6d7c8;border-top-color:#f05a28;border-radius:50%;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><span></span><strong>Preparando tu factura</strong><p>Confirmando el pago…</p></body></html>');
+      receiptWindow.document.close();
+    }
     const buttons = $$('button[type="submit"]', form);
     buttons.forEach((button) => { button.disabled = true; });
     state.paymentProcessing = true;
@@ -7292,9 +7362,9 @@ const App = (() => {
     applyPaidInventoryLocally(invoice, inventoryPlan);
     applyInvoiceToInventory(invoice);
     $("#paymentDialog")?.close();
-    renderInventory();
-    renderTips();
     if (shouldPrint) printThermalReceipt(session, invoice, receiptWindow);
+    if (state.activeAdminSection === "inventory") renderInventory();
+    if (state.activeAdminSection === "tips") renderTips();
     toast(`Pago registrado por ${paymentMethodLabel(payment.method)}. Factura ${invoice.number}.`, "ok", `paid:${session.id}`);
     state.paymentProcessing = false;
   };
@@ -7433,7 +7503,7 @@ const App = (() => {
 
   const queueConsumptionDraft = () => {
     const form = $("#consumptionForm");
-    if (!form || form.session_item_id.value) return false;
+    if (!form || form.session_item_id.value || form.dataset.localSubmitInProgress === "1") return false;
     const draft = currentConsumptionDraft(form);
     if (!draft) return false;
     if (state.consumptionDraftEditIndex >= 0 && state.consumptionDrafts[state.consumptionDraftEditIndex]) {
@@ -7461,31 +7531,28 @@ const App = (() => {
   const setTableConsumptionPreviewVisible = (visible) => {
     const preview = $("#tableConsumptionPreview");
     const button = $("#viewTableConsumption");
-    if (!preview || !button || button.hidden) return;
+    if (!preview || !button) return;
+    visible = !window.matchMedia("(max-width: 640px)").matches || visible;
     preview.hidden = !visible;
     button.innerHTML = visible
-      ? `${icon("list-x", 17)} Esconder lista`
-      : `${icon("receipt-text", 17)} Ver consumo`;
+      ? `${icon("list-x", 17)} Ocultar desglose`
+      : `${icon("receipt-text", 17)} Ver desglose`;
     button.setAttribute("aria-expanded", String(visible));
     refreshIcons();
   };
 
+  const consumptionDateFormatter = new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota", day: "numeric", month: "short", year: "numeric"
+  });
+  const consumptionTimeFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true
+  });
   const formatConsumptionTimestamp = (value) => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
-    const dateParts = new Intl.DateTimeFormat("es-CO", {
-      timeZone: "America/Bogota",
-      day: "numeric",
-      month: "short",
-      year: "numeric"
-    }).formatToParts(date).reduce((parts, part) => ({ ...parts, [part.type]: part.value }), {});
+    const dateParts = consumptionDateFormatter.formatToParts(date).reduce((parts, part) => ({ ...parts, [part.type]: part.value }), {});
     const dateText = `${dateParts.day} ${String(dateParts.month || "").replace(/\./g, "")} ${dateParts.year}`;
-    const timeText = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Bogota",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true
-    }).format(date).toLowerCase();
+    const timeText = consumptionTimeFormatter.format(date).toLowerCase();
     return `${dateText} · ${timeText}`;
   };
 
@@ -7509,17 +7576,98 @@ const App = (() => {
     const viewButton = $("#viewTableConsumption");
     const chargeButton = $("#chargeTableAccount");
     const releaseButton = $("#releaseEmptyTable");
-    if (viewButton) viewButton.hidden = emptyAccount;
+    if (viewButton) viewButton.hidden = emptyAccount || !session || isLocalWalkInSession(session);
     if (chargeButton) chargeButton.hidden = emptyAccount;
     if (releaseButton) releaseButton.hidden = !emptyAccount;
     actions.classList.toggle("is-single", emptyAccount);
-    preview.hidden = true;
-    if (!session) {
-      preview.innerHTML = "";
-      return;
+    const quickCheckout = $("#consumptionForm")?.quick_checkout.value === "1";
+    const previewWasVisible = $("#consumptionDialog")?.open && !preview.hidden;
+    preview.hidden = quickCheckout || (window.matchMedia("(max-width: 640px)").matches && !previewWasVisible);
+    $("#consumptionLayout")?.classList.toggle("without-consumption-preview", quickCheckout);
+    if (!$(".table-consumption-preview-lines", preview)) {
+      preview.innerHTML = '<div class="table-consumption-preview-head"><span class="table-consumption-preview-title"><span>Consumo actual</span><small></small></span><strong></strong></div><div class="table-consumption-preview-lines"></div>';
     }
-    preview.innerHTML = `<div class="table-consumption-preview-head"><span class="table-consumption-preview-title"><span>Consumo actual</span><small>${productCount.toLocaleString("es-CO")} ${productCount === 1 ? "producto" : "productos"}</small></span><strong>${money(sessionTotal(session))}</strong></div><div class="table-consumption-preview-lines">${items.map((item) => `<div><span class="table-consumption-item"><span>${Number(item.quantity || 0)} × ${escapeHTML(item.item_name)}</span>${item.created_at ? `<time datetime="${escapeHTML(item.created_at)}">${escapeHTML(formatConsumptionTimestamp(item.created_at))}</time>` : ""}</span><strong>${money(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>`).join("") || "<small>Sin consumos registrados.</small>"}</div>`;
-    setTableConsumptionPreviewVisible(false);
+    const updateText = (element, value) => { if (element.textContent !== value) element.textContent = value; };
+    updateText($(".table-consumption-preview-title > small", preview), `${productCount.toLocaleString("es-CO")} ${productCount === 1 ? "producto" : "productos"}`);
+    updateText($(".table-consumption-preview-head > strong", preview), money(session ? sessionTotal(session) : 0));
+    const lines = $(".table-consumption-preview-lines", preview);
+    if (lines.dataset.sessionId !== (session?.id || "")) {
+      lines.replaceChildren();
+      lines.dataset.sessionId = session?.id || "";
+    }
+    // Las filas conservan su nodo y su animación; solo cambian los datos editados.
+    const existingRows = new Map($$("[data-consumption-item]", lines).map((row) => [row.dataset.consumptionItem, row]));
+    if (items.length) $("small", lines)?.remove();
+    let cursor = lines.firstElementChild;
+    const selectedId = $("#consumptionForm")?.session_item_id.value;
+    items.forEach((item) => {
+      const id = String(item.id);
+      const row = existingRows.get(id) || document.createElement("button");
+      existingRows.delete(id);
+      const signature = JSON.stringify([item.item_name, item.quantity, item.unit_price, item.created_at]);
+      if (row.dataset.signature !== signature) {
+        const formatted = formatConsumptionTimestamp(item.created_at);
+        row.classList.add("table-consumption-edit");
+        row.type = "button";
+        row.dataset.consumptionItem = id;
+        row.dataset.editConsumption = id;
+        row.dataset.sessionId = session.id;
+        row.setAttribute("aria-label", `Editar ${item.item_name}`);
+        row.innerHTML = `<span class="table-consumption-item"><span>${Number(item.quantity || 0)} × ${escapeHTML(item.item_name)}</span>${formatted ? `<time datetime="${escapeHTML(item.created_at)}">${escapeHTML(formatted)}</time>` : ""}</span><strong>${money(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong>`;
+        row.dataset.signature = signature;
+      }
+      const pressed = String(selectedId === item.id);
+      if (row.getAttribute("aria-pressed") !== pressed) row.setAttribute("aria-pressed", pressed);
+      if (row !== cursor) lines.insertBefore(row, cursor);
+      cursor = row.nextElementSibling;
+    });
+    existingRows.forEach((row) => row.remove());
+    if (!items.length && !lines.firstElementChild) {
+      const empty = document.createElement("small");
+      empty.textContent = "Sin consumos registrados.";
+      lines.append(empty);
+    }
+    if (!quickCheckout) setTableConsumptionPreviewVisible(Boolean(previewWasVisible));
+  };
+
+  const flashAddedConsumption = (addedIds) => {
+    // addConsumptionBatch ya actualizó el desglose antes de empezar el guardado.
+    setTableConsumptionPreviewVisible(true);
+    const preview = $("#tableConsumptionPreview");
+    const rowsById = new Map($$("[data-consumption-item]", preview).map((row) => [row.dataset.consumptionItem, row]));
+    const rows = Array.from(addedIds, (id) => rowsById.get(id)).filter(Boolean);
+    if (!rows.length) return { finished: Promise.resolve(), cancel() {} };
+    let finish;
+    const finished = new Promise((resolve) => {
+      let done = false;
+      let fallback;
+      finish = () => {
+        if (done) return;
+        done = true;
+        window.clearTimeout(fallback);
+        $("#consumptionDialog")?.removeEventListener("close", finish);
+        $$(".consumption-just-added", preview).forEach((row) => row.classList.remove("consumption-just-added"));
+        resolve();
+      };
+      $("#consumptionDialog")?.addEventListener("close", finish, { once: true });
+      rows.forEach((row) => row.classList.add("consumption-just-added"));
+      rows[0].scrollIntoView({ block: "nearest", behavior: "instant" });
+      // Solo acota la confirmación visual. El guardado ya está en curso.
+      fallback = window.setTimeout(finish, 2200);
+    });
+    return {
+      finished,
+      cancel: () => finish(),
+      confirmItems(items) {
+        // Sustituye los IDs provisionales sin reemplazar las filas que parpadean.
+        items.forEach((item, index) => {
+          if (!rows[index]) return;
+          rows[index].dataset.consumptionItem = String(item.id);
+          rows[index].dataset.editConsumption = String(item.id);
+          rows[index].dataset.sessionId = String(item.session_id);
+        });
+      }
+    };
   };
 
   const addConsumptionBatch = async (form, drafts) => {
@@ -7715,6 +7863,7 @@ const App = (() => {
   };
 
   const confirmConsumptionSelection = async (form) => {
+    if (form.dataset.localSubmitInProgress === "1") return null;
     if (form.session_item_id.value) return addManualConsumption(form);
     const hasPendingEntry = Boolean(form.menu_item_id.value || form.item_name.value.trim() || form.quantity.value || $("#consumptionProductSearch")?.value.trim());
     const pendingEntry = currentConsumptionDraft(form, { quiet: true });
@@ -7740,24 +7889,81 @@ const App = (() => {
     const queue = $("#consumptionQueueButton");
     if (submit) submit.disabled = true;
     if (queue) queue.disabled = true;
-    $("#consumptionDialog")?.close();
-    const result = await addConsumptionBatch(form, drafts);
-    if (submit) submit.disabled = false;
-    if (queue) queue.disabled = false;
-    if (!result) {
-      state.consumptionDrafts = drafts;
-      clearConsumptionEntry(form);
+    form.dataset.localSubmitInProgress = "1";
+    form.inert = true;
+    const previousIds = new Set((state.sessions.find((session) => session.id === form.session_id.value)?.session_items || []).map((item) => item.id));
+    let feedback;
+    try {
+      closeConsumptionProductOptions();
+      const saving = addConsumptionBatch(form, drafts);
+      const session = state.sessions.find((entry) => entry.id === form.session_id.value);
+      const addedIds = new Set((session?.session_items || []).filter((item) => !previousIds.has(item.id)).map((item) => item.id));
+      feedback = quickCheckout ? { finished: Promise.resolve(), cancel() {} } : flashAddedConsumption(addedIds);
+      const result = await saving;
+      if (!result) {
+        feedback.cancel();
+        state.consumptionDrafts = drafts;
+        clearConsumptionEntry(form);
+        renderConsumptionSelection();
+        return null;
+      }
+      feedback.confirmItems?.(result.items || []);
+      state.consumptionDrafts = [];
+      state.consumptionDraftEditIndex = -1;
       renderConsumptionSelection();
-      return null;
+      await feedback.finished;
+      $("#consumptionDialog")?.close();
+      clearConsumptionEntry(form);
+      if (quickCheckout) openPaymentDialog(result.sessionId);
+      return result.sessionId;
+    } finally {
+      feedback?.cancel();
+      form.inert = false;
+      delete form.dataset.localSubmitInProgress;
+      if (submit) submit.disabled = false;
+      if (queue) queue.disabled = false;
     }
-    state.consumptionDrafts = [];
-    state.consumptionDraftEditIndex = -1;
-    renderConsumptionSelection();
-    const sessionId = result.sessionId;
-    $("#consumptionDialog")?.close();
-    clearConsumptionEntry(form);
-    if (quickCheckout) openPaymentDialog(sessionId);
-    return sessionId;
+  };
+
+  const bindConsumptionConfirmShortcut = () => {
+    const dialog = $("#consumptionDialog");
+    const form = $("#consumptionForm");
+    const submit = $("#consumptionSubmitButton");
+    if (!dialog || !form || !submit) return;
+    let lastKey = "";
+    let lastKeyAt = 0;
+    document.addEventListener("keydown", (event) => {
+      if (![" ", "Enter"].includes(event.key) || event.repeat || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
+        lastKey = "";
+        return;
+      }
+      if (!dialog.open || form.session_item_id.value || submit.disabled) {
+        lastKey = "";
+        return;
+      }
+      const target = event.target;
+      if (target !== document.body && target !== document && !dialog.contains(target)) {
+        lastKey = "";
+        return;
+      }
+      const emptySearch = target === $("#consumptionProductSearch") && !target.value.trim();
+      const quantity = target === form.quantity;
+      const neutralFocus = !target?.closest?.('input, textarea, select, button, a[href], summary, [contenteditable], [role="button"]');
+      if ((!emptySearch && !quantity && !neutralFocus) || (!state.consumptionDrafts.length && !currentConsumptionDraft(form, { quiet: true }))) {
+        lastKey = "";
+        return;
+      }
+      const now = performance.now();
+      const doublePress = lastKey === event.key && now - lastKeyAt <= 500;
+      lastKey = doublePress ? "" : event.key;
+      lastKeyAt = now;
+      // El primer Enter en cantidad conserva el atajo de añadir a la selección.
+      if (!doublePress && event.key === "Enter" && quantity && currentConsumptionDraft(form, { quiet: true })) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (doublePress) submit.click();
+    }, true);
+    dialog.addEventListener("close", () => { lastKey = ""; });
   };
 
   const openConsumptionDialog = (sessionId = "", { pendingTableId = "", quickCheckout = false } = {}) => {
@@ -7799,7 +8005,7 @@ const App = (() => {
 
   const cancelConsumption = () => {
     const form = $("#consumptionForm");
-    if (!form) return;
+    if (!form || form.dataset.localSubmitInProgress === "1") return;
     const session = state.sessions.find((entry) => entry.id === form.session_id.value);
     const quickCheckout = form.quick_checkout.value === "1";
     state.consumptionDrafts = [];
@@ -7820,7 +8026,12 @@ const App = (() => {
     const item = session?.session_items?.find((entry) => entry.id === itemId);
     const form = $("#consumptionForm");
     const dialog = $("#consumptionDialog");
-    if (!session || !item || !form || !dialog) return;
+    if (!session || !item || item.status === "cancelled" || !form || !dialog || form.dataset.localSubmitInProgress === "1") return;
+    const keepPreview = dialog.open && !$("#tableConsumptionPreview")?.hidden && form.session_id.value === session.id;
+    if (keepPreview && state.consumptionDrafts.length) {
+      toast("Confirma o elimina la seleccion pendiente antes de editar un consumo.", "error", "pending-items-before-edit");
+      return;
+    }
     form.reset();
     form.session_id.value = session.id;
     form.session_item_id.value = item.id;
@@ -7831,8 +8042,8 @@ const App = (() => {
     state.consumptionDrafts = [];
     state.consumptionDraftEditIndex = -1;
     renderConsumptionSelection();
-    if ($("#tableSessionActions")) $("#tableSessionActions").hidden = true;
-    if ($("#tableConsumptionPreview")) $("#tableConsumptionPreview").hidden = true;
+    if (!keepPreview && $("#tableConsumptionPreview")) $("#tableConsumptionPreview").hidden = true;
+    $("#consumptionLayout")?.classList.toggle("without-consumption-preview", !keepPreview);
     if ($("#consumptionQueueButton")) $("#consumptionQueueButton").hidden = true;
     if ($("#consumptionEyebrow")) $("#consumptionEyebrow").textContent = "Consumo";
     if ($("#consumptionDialogTitle")) $("#consumptionDialogTitle").textContent = "Editar consumo";
@@ -7848,10 +8059,14 @@ const App = (() => {
     if (optionalFields) optionalFields.open = true;
     const product = state.items.find((entry) => entry.id === item.menu_item_id);
     const productSearch = $("#consumptionProductSearch");
-    if (productSearch) productSearch.value = product ? `${inventoryFor(product).code} · ${product.name}` : "";
-    renderConsumptionProductOptions(product?.name || "");
+    if (productSearch) productSearch.value = product ? `${inventoryFor(product).code} · ${product.name}` : item.item_name || "";
+    renderConsumptionProductOptions(product?.name || item.item_name || "");
     closeConsumptionProductOptions();
-    dialog.showModal();
+    if (keepPreview) renderTableConsumptionPreview(session);
+    if ($("#tableSessionActions")) $("#tableSessionActions").hidden = true;
+    if (!dialog.open) dialog.showModal();
+    form.quantity.focus({ preventScroll: true });
+    form.quantity.select();
     refreshIcons();
   };
 
@@ -8346,6 +8561,7 @@ const App = (() => {
 
   const bindAdmin = () => {
     bindCurrencyInputs();
+    bindConsumptionConfirmShortcut();
     $("#businessForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       await saveBusiness(event.currentTarget);
@@ -9358,6 +9574,8 @@ const App = (() => {
     const intro = $("#loginIntro");
     const submitButton = $("#loginSubmit");
     let initialSetup = false;
+    let loginInProgress = false;
+    let setupStatus = null;
     const setInitialSetupMode = (enabled) => {
       initialSetup = Boolean(enabled);
       if (regularCredentials) regularCredentials.hidden = initialSetup;
@@ -9372,13 +9590,20 @@ const App = (() => {
         : `${icon("log-in", 18)} Entrar`;
       refreshIcons();
     };
-    const setupStatus = await dbQuiet(state.sb.rpc("getInitialSetupStatus"), null);
-    setInitialSetupMode(Boolean(setupStatus?.needs_initial_admin));
+    // El formulario responde desde el primer clic mientras se consulta la instalación.
+    void dbQuiet(state.sb.rpc("getInitialSetupStatus"), null).then((status) => {
+      setupStatus = status;
+      if (!loginInProgress && !state.currentUser) setInitialSetupMode(Boolean(status?.needs_initial_admin));
+    });
     return new Promise((resolve) => {
       form?.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (loginInProgress) return;
+        loginInProgress = true;
         const button = submitButton || form.querySelector("[type='submit']");
-        if (button) button.disabled = true;
+        const buttonMarkup = button?.innerHTML || "";
+        if (button) { button.disabled = true; button.innerHTML = `${icon("loader-circle", 18)} Entrando…`; }
+        refreshIcons();
         if (errorBox) errorBox.textContent = "";
         const username = initialSetup ? form.initialUsername.value.trim() : form.username.value.trim();
         const pin = initialSetup ? form.initialPin.value : form.pin.value;
@@ -9389,8 +9614,9 @@ const App = (() => {
             pin
           }), null);
           if (!created?.id) {
+            loginInProgress = false;
             if (errorBox) errorBox.textContent = "No fue posible crear el Jefe. Revisa los datos e intenta nuevamente.";
-            if (button) button.disabled = false;
+            if (button) { button.disabled = false; button.innerHTML = buttonMarkup; }
             return;
           }
           setInitialSetupMode(false);
@@ -9400,8 +9626,10 @@ const App = (() => {
           pin
         }), null);
         if (!session?.token || !session?.user) {
+          loginInProgress = false;
           if (errorBox) errorBox.textContent = "Usuario o PIN incorrectos.";
-          if (button) button.disabled = false;
+          if (button) { button.disabled = false; button.innerHTML = buttonMarkup; }
+          if (setupStatus?.needs_initial_admin) setInitialSetupMode(true);
           return;
         }
         state.authToken = session.token;
@@ -9766,11 +9994,10 @@ const App = (() => {
     const pendingScan = new URLSearchParams(location.search).get("scan") || "";
     await waitForAdminLogin();
     loadInventoryStore();
-    if (isBoss()) void loadUsers().then(renderUsers);
     state.soundEnabled = localStorage.getItem("waiter_alarm_enabled") === "1";
     const initialSection = pendingScan ? "service" : (location.hash.replace("#", "") || "dashboard");
+    if (initialSection === "users" && isBoss()) void loadUsers().then(renderUsers);
     renderAdmin();
-    renderUsers();
     showAdminSection(initialSection);
     updateAlarmButton();
     bindAdmin();
@@ -9779,7 +10006,10 @@ const App = (() => {
     startAlarmLoop();
     setLoading(false);
     await loadBootstrap();
-    await ensurePresetCategories();
+    void ensurePresetCategories().then(() => {
+      if (state.activeAdminSection === "menu") renderMenuManager();
+      if (state.activeAdminSection === "inventory") renderInventory();
+    });
     renderAdmin();
     showAdminSection(state.activeAdminSection || initialSection);
     renderTableFormQr();
@@ -9816,6 +10046,25 @@ const App = (() => {
       refreshIcons();
       return;
     }
+    window.MenuCards?.init({
+      page: state.page, sb: state.sb, icon, refreshIcons, toast,
+      getBusiness: () => state.business,
+      updateBusiness: (business) => {
+        state.business = { ...state.business, ...business };
+        persistBootstrapCache();
+        renderBrand();
+      },
+      getTables: normalTables, tableLabel,
+      getCurrentTable: () => state.currentTable,
+      getAuthToken: () => state.authToken,
+      getAssistantMode: () => state.assistantMode,
+      refreshBill: renderBillChat,
+      isOutdoor: (table) => state.outdoorTableDraftIds instanceof Set
+        ? state.outdoorTableDraftIds.has(String(table.id)) : isOutdoorTable(table),
+      canManage: () => canAccessAdminSection("brand"),
+      renderOutdoorTables: renderOutdoorTableConfigurator,
+      confirm: askForConfirmation
+    });
     if (state.page === "client") {
       window.addEventListener("online", () => {
         flushRequestOutbox();

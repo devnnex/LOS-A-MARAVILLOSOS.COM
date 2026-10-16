@@ -12,7 +12,8 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="images/los-anos-pwa-192.png" id="appFavicon" type="image/png">
     <link rel="apple-touch-icon" href="images/los-anos-pwa-192.png" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20261015-unlocked-qr-1">
+    <link rel="stylesheet" href="style.css?v=20261016-consumption-feedback-4">
+    <link rel="stylesheet" href="menu-cards.css?v=20261016-menu-controls-5">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body data-page="admin">
@@ -82,7 +83,7 @@
           <span class="eyebrow">Centro de mando</span>
           <h1 class="js-business-name">Restaurante</h1>
           <p class="js-business-subtitle">Gestiona solicitudes, mesas, menu y cuentas.</p>
-          <span class="live-status" id="realtimeStatus"><i data-lucide="wifi"></i> Conectando en vivo</span>
+          <span class="live-status live" id="realtimeStatus" title="Conectando en vivo"><i data-lucide="wifi"></i> En vivo</span>
         </div>
         <div class="admin-header-actions">
           <a class="primary" href="index.html"><i data-lucide="external-link"></i> Ver cliente</a>
@@ -165,6 +166,11 @@
             <span><i data-lucide="image-up"></i> Portada</span>
             <small data-upload-status="cover_url">Seleccionar imagen</small>
           </label>
+          <div class="menu-library upload-field" id="menuCardLibrary">
+            <label class="menu-library-upload"><input id="menuCardImageFile" type="file" accept="image/jpeg,image/png,image/webp" multiple><span><i data-lucide="images"></i> Cartas del negocio</span><small id="menuLibraryUploadStatus">Subir hasta 5 imágenes</small></label>
+            <div class="menu-library-stack" id="menuLibraryStack" aria-label="Biblioteca de cartas"></div>
+            <div class="menu-library-progress"><label for="menuLibraryProgress">Imágenes subidas <strong id="menuLibraryCount">0/5</strong></label><progress id="menuLibraryProgress" value="0" max="5">0 de 5</progress></div>
+          </div>
           <div class="tip-setting-card wide">
             <div class="tip-setting-copy">
               <span class="tip-setting-icon"><i data-lucide="hand-coins"></i></span>
@@ -190,7 +196,18 @@
               <div class="table-zone-range-actions">
                 <button class="ghost" id="selectOutdoorRange" type="button"><i data-lucide="tree-pine"></i> Afuera</button>
                 <button class="ghost" id="clearOutdoorRange" type="button"><i data-lucide="house"></i> Adentro</button>
+                <button class="ghost menu-cards-toggle" id="manageMenuCards" type="button" aria-expanded="false" aria-controls="menuCardsEditor"><i data-lucide="book-open"></i> Cartas</button>
               </div>
+            </div>
+            <div class="menu-cards-editor" id="menuCardsEditor" hidden>
+              <div class="menu-cards-intro"><div><span class="eyebrow">Cartas del negocio</span><h3>Una carta para cada mesa</h3><p>Nombra cada imagen y marca las mesas que podrán verla. Una mesa puede tener varias cartas.</p></div><button class="ghost" id="newMenuCard" type="button"><i data-lucide="plus"></i> Nueva carta</button></div>
+              <div class="menu-card-tabs" id="menuCardTabs" role="group" aria-label="Elegir carta"></div>
+              <p id="menuCardsStatus" role="status" aria-live="polite"></p>
+              <div class="menu-card-editor-fields" id="menuCardFields" hidden>
+                <div class="menu-card-upload"><img id="menuCardPreview" alt="Vista previa de la carta" hidden><small>Vista previa de la carta seleccionada</small></div>
+                <div class="menu-card-details"><label>Nombre de la carta<input id="menuCardName" type="text" maxlength="80" placeholder="Ej. Carta afuera, Carta adentro, Carta comidas"></label><div class="menu-card-colors" id="menuCardColors" role="group" aria-label="Color de identificación de la carta"></div><p>Selecciona sus mesas en el mismo plano de abajo. Los puntos de color muestran las otras cartas asignadas.</p><div class="menu-card-editor-actions"><button class="primary" id="saveMenuCard" type="button"><i data-lucide="save"></i> Guardar cartas</button><button class="ghost danger-text" id="deleteMenuCard" type="button"><i data-lucide="trash-2"></i> Eliminar</button></div></div>
+              </div>
+              <div class="menu-card-assignment-actions" id="menuCardAssignmentActions" hidden><button class="ghost small" type="button" data-card-assign="all">Todas las mesas</button><button class="ghost small" type="button" data-card-assign="outdoor">Las de afuera</button><button class="ghost small" type="button" data-card-assign="indoor">Las de adentro</button><button class="ghost small" type="button" data-card-assign="range">Asignar rango</button><button class="ghost small" type="button" data-card-assign="remove-range">Quitar rango</button><button class="ghost small" type="button" data-card-assign="none">Limpiar selección</button></div>
             </div>
             <div class="outdoor-table-selector" id="outdoorTableSelector" aria-label="Seleccionar mesas de afuera"></div>
             <small class="table-zone-setting-status" id="tableZoneSettingStatus">Las mesas no marcadas se consideran mesas de adentro.</small>
@@ -626,12 +643,14 @@
             <i data-lucide="x"></i>
           </button>
         </div>
+        <div class="consumption-layout" id="consumptionLayout">
+          <div class="table-consumption-preview" id="tableConsumptionPreview" hidden></div>
+          <div class="consumption-entry-panel">
+          <button class="ghost" id="viewTableConsumption" type="button" aria-controls="tableConsumptionPreview" aria-expanded="false"><i data-lucide="receipt-text"></i> Ver desglose</button>
         <div class="table-session-actions" id="tableSessionActions" hidden>
-          <button class="ghost" id="viewTableConsumption" type="button"><i data-lucide="receipt-text"></i> Ver consumo</button>
           <button class="primary" id="chargeTableAccount" type="button"><i data-lucide="badge-dollar-sign"></i> Cobrar cuenta</button>
           <button class="ghost danger-text" id="releaseEmptyTable" type="button" hidden><i data-lucide="door-open"></i> Liberar mesa</button>
         </div>
-        <div class="table-consumption-preview" id="tableConsumptionPreview" hidden></div>
         <div class="product-picker-field">
           <label for="consumptionProductSearch">Producto</label>
           <div class="product-combobox" id="consumptionProductCombobox">
@@ -667,6 +686,8 @@
           <button class="ghost" type="button" data-cancel-consumption>Cancelar</button>
           <button class="ghost" id="consumptionQueueButton" type="button"><i data-lucide="list-plus"></i> Añadir a selección</button>
           <button class="primary" id="consumptionSubmitButton" type="submit"><i data-lucide="check"></i> <span>Confirmar selección</span></button>
+        </div>
+          </div>
         </div>
       </form>
     </dialog>
@@ -882,6 +903,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="app.js?v=20261015-qr-table-names-2"></script>
+    <script src="menu-cards.js?v=20261016-menu-controls-5"></script>
+    <script src="app.js?v=20261016-menu-controls-7"></script>
   </body>
 </html>

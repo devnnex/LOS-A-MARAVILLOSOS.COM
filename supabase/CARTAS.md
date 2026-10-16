@@ -1,0 +1,11 @@
+Las cartas necesitan la migración `migrations/20261016000000_table_menu_cards.sql` en la misma base de Supabase que usa `app.js`. Para una instalación existente, ejecuta únicamente ese archivo en el SQL Editor de Supabase. La migración también está incluida al final de `schema.sql` para instalaciones nuevas.
+
+La migración crea la biblioteca (máximo cinco imágenes), las asignaciones por mesa, el bucket privado `menu-cards` y los cuatro controles del cliente. No cambia mesas, cuentas, ventas ni imágenes de marca existentes.
+
+En **Marca**, sube las imágenes desde **Cartas del negocio**, junto a Logo y Portada. El contador indica cuántas de las cinco posiciones están ocupadas. Las cartas recién subidas no se muestran a ninguna mesa hasta que las asignes.
+
+En **Cartas**, elige una imagen, escribe su nombre y marca sus mesas. Puedes asignar todas, las de afuera, las de adentro, un rango o mesas individuales. Las selecciones se guardan automáticamente y se vuelven a consultar en Supabase antes de mostrar «Asignaciones guardadas y verificadas». Si falla la conexión, el borrador queda en este navegador para reintentar. **Guardar cartas** y **Guardar configuración** también guardan las selecciones pendientes de todas las imágenes. Los puntos de color indican otras cartas asignadas a una misma mesa; las selecciones de cartas no cambian la ubicación de las mesas.
+
+Los cinco interruptores bajo Propina se guardan al pulsarlos. En instalaciones que ya tenían las cartas, ejecuta `migrations/20261016010000_client_bill_toggle.sql` para añadir el interruptor **Ver cuenta**. La consulta de cartas del cliente requiere el QR válido de su mesa. El servidor filtra la biblioteca y el acceso a las imágenes; no basta con esconder botones. Al identificar la mesa se descargan y decodifican sus imágenes en segundo plano para abrirlas y navegar sin nuevas descargas. Solo se mantiene preparada la mesa actual y su lista se actualiza en segundo plano.
+
+La aplicación sigue siendo estática y no necesita una compilación. Para verificar los cambios: `npm ci`, `npm run check` y `npm test`. Las pruebas usan Chrome/Chromium instalado; puedes indicar otra ruta con `CHROME_PATH`. Usan datos de prueba, sin modificar Supabase ni enviar documentos a una impresora física.

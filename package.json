@@ -1,0 +1,12 @@
+{
+  "name": "los-anos-maravillosos",
+  "private": true,
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "check": "node --check app.js && node --check menu-cards.js && node --check service-worker.js"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
+    "playwright-core": "1.64.1"
+  }
+}
