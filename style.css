@@ -3976,7 +3976,7 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 .service-points-panel,
 .service-tables-panel,
 .walk-in-sale-card { min-width: 0; }
-.service-points-panel { display: grid; gap: .8rem; padding: 1rem; border: 1px solid rgba(18, 24, 31, .09); border-radius: 18px; background: linear-gradient(145deg, #fff9ed, #fff); }
+.service-points-panel { display: grid; align-self: start; align-content: start; gap: .8rem; padding: 1rem; border: 1px solid rgba(18, 24, 31, .09); border-radius: 18px; background: linear-gradient(145deg, #fff9ed, #fff); }
 .service-points-head { display: flex; align-items: center; justify-content: space-between; gap: .8rem; flex-wrap: wrap; }
 .service-points-head .service-block-title { margin-bottom: 0; }
 .service-zone-tabs { display: flex; gap: .4rem; padding: .28rem; border-radius: 13px; background: #f0f2f5; }
