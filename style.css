@@ -4342,7 +4342,7 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 
 /* Navegación operativa, contador y perfil compacto */
 .admin-sidebar nav a { min-width: 0; }
-.service-nav-link { position: relative; }
+.dashboard-nav-link { position: relative; }
 .nav-request-badge {
   display: inline-grid;
   place-items: center;
@@ -5140,8 +5140,7 @@ body[data-page="admin"] { overflow-x: hidden; }
 .service-sales-layout {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-areas:
-    "tables points"
-    "tables walk-in";
+    "tables points";
   align-items: stretch;
 }
 .service-tables-panel { grid-area: tables; }
@@ -5165,12 +5164,14 @@ body[data-page="admin"] { overflow-x: hidden; }
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "tables"
-      "points"
-      "walk-in";
+      "points";
   }
 }
 
 /* Consumo y desglose: disposición del proyecto de referencia. */
+.compact-table-tile.walk-in-table { background: #e5efff; border-color: #8cb4f5; color: #143d7a; }
+.compact-table-tile.walk-in-table .table-furniture-icon { grid-column: 1 / -1; justify-self: center; color: #1764d9; }
+.compact-table-tile.walk-in-table small { color: #143d7a; white-space: normal; }
 .consumption-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); gap: 1rem; align-items: stretch; }
 .consumption-layout.without-consumption-preview { grid-template-columns: minmax(0, 1fr); }
 .consumption-entry-panel { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }

@@ -601,7 +601,17 @@ window.MenuCards = (() => {
     });
   };
   const renderFeatureForm = (form) => {
-    Object.keys(features).forEach((key) => { if (form.elements[key]) form.elements[key].checked = featureDrafts.get(key) ?? enabled(key); });
+    Object.keys(features).forEach((key) => {
+      const input = form.elements[key];
+      if (!input) return;
+      input.checked = featureDrafts.get(key) ?? enabled(key);
+      if (key === "client_bill_enabled") {
+        const available = Object.hasOwn(ctx.getBusiness() || {}, key);
+        input.disabled = !available;
+        const help = $("#client_bill_enabled_help");
+        if (help) help.textContent = available ? features[key][2] : "Pendiente de actualizar Supabase para guardar esta opción.";
+      }
+    });
     renderBrandAssets(form);
     if (ctx.page === "admin" && !loaded && !loading && ctx.getAuthToken() && ctx.canManage()) void loadLibrary();
   };
@@ -610,12 +620,18 @@ window.MenuCards = (() => {
     const key = input.name;
     const value = input.checked;
     const previous = enabled(key);
+    if (key === "client_bill_enabled" && !Object.hasOwn(ctx.getBusiness() || {}, key)) {
+      input.checked = previous;
+      ctx.toast("Actualiza Supabase para habilitar el interruptor Ver cuenta.", "error");
+      return;
+    }
     featureDrafts.set(key, value);
     input.disabled = true;
     ctx.updateBusiness({[key]: value});
     try {
       const {data, error} = await ctx.sb.from("business_settings").update({[key]: value}).eq("is_primary", true).select("*").maybeSingle();
       if (error || !data) throw new Error(error?.message || "No se pudo guardar el cambio.");
+      if (key === "client_bill_enabled" && data[key] !== value) throw new Error("No se confirmó el cambio de Ver cuenta.");
       ctx.updateBusiness({[key]: data[key]});
       featureDrafts.delete(key);
       ctx.toast(`${features[key][0]} ${value ? "activado" : "desactivado"}.`);
@@ -687,8 +703,8 @@ window.MenuCards = (() => {
   };
   return {
     init, enabled, syncFeatures, renderTableSelector, renderFeatureForm, savePendingCards, prepareForTable,
-    featurePayload: (form) => Object.fromEntries(Object.keys(features).map((key) => [key, Boolean(form.elements[key]?.checked)])),
-    originalFeaturePayload: (business) => Object.fromEntries(Object.keys(features).map((key) => [key, business?.[key] !== false])),
+    featurePayload: (form) => Object.fromEntries(Object.keys(features).filter((key) => key !== "client_bill_enabled" || Object.hasOwn(ctx.getBusiness() || {}, key)).map((key) => [key, Boolean(form.elements[key]?.checked)])),
+    originalFeaturePayload: (business) => Object.fromEntries(Object.keys(features).filter((key) => key !== "client_bill_enabled" || Object.hasOwn(business || {}, key)).map((key) => [key, business?.[key] !== false])),
     previewBrandAsset: (field, url) => { brandDrafts.set(field, url); const form = $("#businessForm"); if (form) renderBrandAssets(form); },
     clearBrandDrafts: (saved) => {
       for (const [field, value] of brandDrafts) if (saved[field] === value) brandDrafts.delete(field);

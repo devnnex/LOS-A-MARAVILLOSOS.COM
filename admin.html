@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" id="appManifest" type="application/manifest+json">
     <link rel="icon" href="images/los-anos-pwa-192.png" id="appFavicon" type="image/png">
     <link rel="apple-touch-icon" href="images/los-anos-pwa-192.png" id="appleTouchIcon">
-    <link rel="stylesheet" href="style.css?v=20261016-consumption-feedback-4">
+    <link rel="stylesheet" href="style.css?v=20261016-admin-adjustments-8">
     <link rel="stylesheet" href="menu-cards.css?v=20261016-menu-controls-5">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
@@ -49,8 +49,8 @@
         </div>
       </div>
       <nav>
-        <a href="#dashboard" data-admin-only><i data-lucide="layout-dashboard"></i> Inicio</a>
-        <a href="#service" class="service-nav-link"><i data-lucide="scan-line"></i> Atender mesa <span class="nav-request-badge" id="navRequestBadge" role="status" aria-label="Solicitudes pendientes" hidden>0</span></a>
+        <a href="#dashboard" class="dashboard-nav-link" data-admin-only><i data-lucide="layout-dashboard"></i> Inicio <span class="nav-request-badge" id="navRequestBadge" role="status" aria-label="Solicitudes pendientes" hidden>0</span></a>
+        <a href="#service"><i data-lucide="scan-line"></i> Atender mesa</a>
         <a href="#accounts"><i data-lucide="receipt-text"></i> Cuentas</a>
         <a href="#tips" class="tips-nav-link" data-tip-feature hidden><i data-lucide="hand-coins"></i> Propinas</a>
         <a href="#inventory" data-admin-only><i data-lucide="boxes"></i> Inventario</a>
@@ -525,11 +525,6 @@
             </div>
             <div class="compact-tables-grid" id="waiterTablesGrid"></div>
           </article>
-          <article class="walk-in-sale-card" data-manager-only>
-            <span class="walk-in-icon"><i data-lucide="shopping-bag"></i></span>
-            <div><span class="eyebrow">Venta rápida</span><h3>Cliente individual</h3><p>Para una compra que no ocupa mesa, barra ni matera.</p></div>
-            <button class="primary" id="newWalkInSale" type="button"><i data-lucide="plus"></i> Nueva venta individual</button>
-          </article>
         </div>
       </section>
 
@@ -903,7 +898,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script src="menu-cards.js?v=20261016-menu-controls-5"></script>
-    <script src="app.js?v=20261016-menu-controls-7"></script>
+    <script src="menu-cards.js?v=20261016-admin-adjustments-8"></script>
+    <script src="app.js?v=20261016-admin-adjustments-8"></script>
   </body>
 </html>

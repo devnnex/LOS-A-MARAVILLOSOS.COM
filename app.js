@@ -3878,7 +3878,7 @@ const App = (() => {
     const search = $("#dashboardTableSearch");
     if (select) select.value = filter;
     if (search && search.value !== searchValue) search.value = searchValue;
-    box.innerHTML = compactTableTiles(filter, searchValue) || emptyState("Sin mesas", searchValue ? "No hay una mesa que coincida con la búsqueda." : (filter === "all" ? "Crea las mesas del negocio para comenzar." : "No hay mesas en esta ubicación."), "layout-grid");
+    box.innerHTML = `<button class="compact-table-tile walk-in-table" id="newWalkInSale" type="button" aria-label="Nueva venta individual"><span class="table-furniture-icon">${icon("plus", 23)}</span><small>Venta individual</small></button>` + (compactTableTiles(filter, searchValue) || emptyState("Sin mesas", searchValue ? "No hay una mesa que coincida con la búsqueda." : (filter === "all" ? "Crea las mesas del negocio para comenzar." : "No hay mesas en esta ubicación."), "layout-grid"));
     refreshIcons();
   };
 

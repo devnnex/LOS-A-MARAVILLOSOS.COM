@@ -68,6 +68,46 @@ test('Marca, cartas, consumo y respuesta al clic en navegador', async (t) => {
       assert.equal(await admin.locator('#menuLibraryCount').textContent(),'0/5');
       assert.deepEqual(admin.errors, []);
     });
+    await t.test('Ver cuenta informa la columna pendiente y funciona al completar la migración', async () => {
+      const page=await makePage({missingBillColumn:true});
+      try {
+        await page.goto(`${origin}/admin.html#brand`,{waitUntil:'domcontentloaded'});
+        await page.locator('#loginForm [name=username]').fill('prueba');
+        await page.locator('#loginForm [name=pin]').fill('1234');
+        await page.locator('#loginSubmit').click();
+        await page.waitForFunction(()=>document.body.classList.contains('admin-authenticated'));
+        await page.waitForFunction(()=>!document.querySelector('#menuCardImageFile').disabled);
+        assert(await page.locator('[name=client_bill_enabled]').isDisabled());
+        assert.match(await page.locator('#client_bill_enabled_help').textContent(),/Supabase/);
+        await page.locator('#businessForm > button[type=submit]').click();
+        await page.waitForFunction(()=>!document.querySelector('#businessForm > button[type=submit]').disabled);
+        assert.equal(await page.evaluate(()=>Object.hasOwn(__mock.business,'client_bill_enabled')),false,'Guardar Marca no debe enviar una columna que todavía no existe');
+        await page.evaluate(()=>{__mock.business.client_bill_enabled=true;__app.state.business={...__mock.business};__app.renderBusinessForm();});
+        assert(await page.locator('[name=client_bill_enabled]').isEnabled());
+        await page.locator('[name=client_bill_enabled]').locator('..').click();
+        await page.waitForFunction(()=>__mock.business.client_bill_enabled===false && !document.querySelector('[name=client_bill_enabled]').disabled);
+        assert.equal(await page.evaluate(()=>__app.state.business.client_bill_enabled),false);
+        await page.locator('[name=client_bill_enabled]').locator('..').click();
+        await page.waitForFunction(()=>__mock.business.client_bill_enabled===true && !document.querySelector('[name=client_bill_enabled]').disabled);
+        assert.deepEqual(page.errors,[]);
+      } finally {await page.context().close();}
+    });
+    await t.test('Venta individual queda junto a Mesa 1 en Inicio y conserva su operación', async () => {
+      try {
+        await admin.evaluate(()=>__app.showAdminSection('dashboard'));
+        await admin.waitForFunction(()=>document.querySelector('#tablesGrid #newWalkInSale')?.parentElement?.id==='tablesGrid');
+        const position=await admin.evaluate(()=>{const el=document.querySelector('#tablesGrid #newWalkInSale');return {parent:el.parentElement.id,next:el.nextElementSibling?.hasAttribute('data-open-table'),background:getComputedStyle(el).backgroundColor};});
+        assert.deepEqual(position,{parent:'tablesGrid',next:true,background:'rgb(229, 239, 255)'});
+        assert.equal(await admin.locator('#service #newWalkInSale,#service .walk-in-sale-card').count(),0);
+        await admin.locator('#newWalkInSale').click();
+        await admin.waitForFunction(()=>document.querySelector('#paymentDialog').open);
+        assert.equal(await admin.evaluate(()=>__app.state.sessions.filter(s=>s.local_only && s.sale_channel==='walk_in').length),1);
+        await admin.locator('#paymentDialog [data-cancel-payment]').first().click();
+        await admin.waitForFunction(()=>!document.querySelector('#paymentDialog').open);
+        await admin.screenshot({path:path.join(artifacts,'inicio-venta-individual.png')});
+        assert.deepEqual(admin.errors,[]);
+      } finally {await admin.evaluate(()=>__app.showAdminSection('brand'));}
+    });
     await t.test('biblioteca de tres imágenes: nombres, colores y mesas independientes', async () => {
       const png = await admin.evaluate(() => {const c=document.createElement('canvas');c.width=400;c.height=600;const x=c.getContext('2d');x.fillStyle='#fff0db';x.fillRect(0,0,400,600);x.fillStyle='#65402c';x.font='28px sans-serif';x.fillText('CARTA DEL NEGOCIO',35,70);return c.toDataURL().split(',')[1];});
       const image = Buffer.from(png,'base64');
@@ -400,6 +440,9 @@ test('Marca, cartas, consumo y respuesta al clic en navegador', async (t) => {
         __app.renderTables();__app.renderAccounts();__app.renderAdminShell();
       },data);
       const table=admin.locator('#tablesGrid [data-open-table]').first();
+      assert.equal(await admin.locator('.admin-sidebar a[href="#dashboard"] #navRequestBadge').count(),1);
+      assert.equal(await admin.locator('.admin-sidebar a[href="#service"] #navRequestBadge').count(),0);
+      assert.equal(await admin.locator('#navRequestBadge').textContent(),String(data.requests.length));
       assert.match(await table.getAttribute('class'),/\bfree\b/);
       assert(!/occupied|needs-attention/.test(await table.getAttribute('class')));
       assert.equal(await table.locator('small').textContent(),'Libre');

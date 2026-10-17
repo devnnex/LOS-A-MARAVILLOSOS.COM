@@ -4,6 +4,7 @@
   const tables = Array.from({length: 65}, (_, i) => ({id: `10000000-0000-4000-8000-${String(i+1).padStart(12, '0')}`, table_number: i+1, table_name: `Mesa de prueba ${i+1}`, qr_code: `mesa-${i+1}`, is_active: true, is_outdoor: i < 20}));
   const business = {is_primary: true, business_name: 'Los Años Maravillosos', subtitle: 'Servicio a la mesa', accent_color: '#f05a28', currency: 'COP', tips_enabled: false, tip_percentage: 10, client_menu_enabled: true, client_bill_enabled: true, client_waiter_enabled: true, client_chat_enabled: true, client_song_enabled: true, ...config.business};
   const categories = ['Cervezas','Aguardientes','Ron','Whisky','Vodka','Tequila','Ginebra','Cocteles','Sin alcohol','Comidas'].map((name,i) => ({id: `category-${i}`, name, sort_order: i, is_active: true}));
+  if (config.missingBillColumn) delete business.client_bill_enabled;
   const items = [{id: 'product-1', name: 'Cerveza', price: 5000, is_available: true, category_id: 'category-0', menu_categories: {name: 'Cervezas'}}];
   const sessions = [];
   const requests = [];
