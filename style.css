@@ -3069,6 +3069,14 @@ option {
   background: #ffd6e8;
 }
 
+.alert-card .alert-request-details { min-width: 0; margin-top: .5rem; }
+.alert-card .alert-request-details summary { width: fit-content; padding: .3rem 0; font-size: .78rem; font-weight: 650; cursor: pointer; }
+.alert-card .alert-request-list { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; margin: .4rem 0 0; padding: .55rem .7rem .55rem 1.8rem; border: 1px solid rgba(18, 24, 31, .12); border-radius: 10px; background: rgba(255, 255, 255, .75); }
+.alert-card .alert-request-list li { padding: .45rem .15rem; border-bottom: 1px solid rgba(18, 24, 31, .08); }
+.alert-card .alert-request-list li:last-child { border-bottom: 0; }
+.alert-card .alert-request-list p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; font-weight: 400; line-height: 1.45; }
+.alert-card .alert-request-list time { display: block; margin-top: .15rem; color: #667085; font-size: .68rem; }
+
 .request-btn.is-pending {
   opacity: .78;
   transform: scale(.98);

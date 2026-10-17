@@ -9,7 +9,7 @@ import {chromium} from 'playwright-core';
 const root = path.resolve(import.meta.dirname, '..');
 const artifacts = path.join(os.tmpdir(), 'codex-maravillosos-ui');
 const fixture = await fs.readFile(new URL('./fixtures/supabase-browser.js', import.meta.url), 'utf8');
-const app = (await fs.readFile(path.join(root,'app.js'), 'utf8')).replace('return { init };', 'return { init, state, openConsumptionDialog, editConsumption, renderTableConsumptionPreview, renderBusinessForm, showAdminSection, printThermalReceipt, refreshIcons, renderBrand, activateSongRequestMode, hydrateSelectedTable, renderTables, renderAccounts, renderAdminShell };') + '\nwindow.__app = App;';
+const app = (await fs.readFile(path.join(root,'app.js'), 'utf8')).replace('return { init };', 'return { init, state, openConsumptionDialog, editConsumption, renderTableConsumptionPreview, renderBusinessForm, showAdminSection, printThermalReceipt, refreshIcons, renderBrand, activateSongRequestMode, hydrateSelectedTable, renderTables, renderAccounts, renderAdminShell, renderAlerts };') + '\nwindow.__app = App;';
 const server = http.createServer(async (req,res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
@@ -95,7 +95,7 @@ test('Marca, cartas, consumo y respuesta al clic en navegador', async (t) => {
     await t.test('Venta individual queda junto a Mesa 1 en Inicio y conserva su operación', async () => {
       try {
         await admin.evaluate(()=>__app.showAdminSection('dashboard'));
-        await admin.waitForFunction(()=>document.querySelector('#tablesGrid #newWalkInSale')?.parentElement?.id==='tablesGrid');
+        await admin.waitForFunction(()=>document.querySelector('#tablesGrid #newWalkInSale')?.nextElementSibling?.hasAttribute('data-open-table'));
         const position=await admin.evaluate(()=>{const el=document.querySelector('#tablesGrid #newWalkInSale');return {parent:el.parentElement.id,next:el.nextElementSibling?.hasAttribute('data-open-table'),background:getComputedStyle(el).backgroundColor};});
         assert.deepEqual(position,{parent:'tablesGrid',next:true,background:'rgb(229, 239, 255)'});
         assert.equal(await admin.locator('#service #newWalkInSale,#service .walk-in-sale-card').count(),0);
@@ -672,6 +672,53 @@ test('Marca, cartas, consumo y respuesta al clic en navegador', async (t) => {
       assert((await popup.evaluate(() => window.__printedAt))-start<2000);
       assert.match(await popup.locator('body').textContent(),/Cerveza/);
       await popup.close();
+    });
+    await t.test('solicitudes acumuladas muestran su desglose y conservan la lectura al actualizarse', async () => {
+      const page=await makePage();
+      try {
+        await page.goto(`${origin}/admin.html#dashboard`,{waitUntil:'domcontentloaded'});
+        await page.locator('#loginForm [name=username]').fill('prueba');
+        await page.locator('#loginForm [name=pin]').fill('1234');
+        await page.locator('#loginSubmit').click();
+        await page.waitForFunction(()=>document.body.classList.contains('admin-authenticated'));
+        await page.evaluate(()=>{
+          const table=__mock.tables[6];
+          const request=(id,message,time,extra={})=>({id,table_id:table.id,session_id:'session-7',request_type:'other',status:'pending',message,created_at:`2026-10-16T20:${time}:00Z`,restaurant_tables:table,...extra});
+          // Orden de llegada mezclado: el resumen debe mostrar el más reciente.
+          __app.state.requests=[request('chat-1','Primera solicitud','01'),request('chat-2','Segunda <img src=x onerror=alert(1)>','02'),request('other-table','Otra mesa','03',{table_id:__mock.tables[7].id,restaurant_tables:__mock.tables[7]}),request('song-1','Solicita la cancion: Uno','04'),request('song-2','Solicita la cancion: Dos','05'),request('finished','Ya atendida','06',{status:'acknowledged'})];
+          __app.renderAlerts();
+        });
+        const chat=page.locator('[data-alert-card="chat-2"]');
+        assert.equal(await page.locator('#alertsPanel .alert-card').count(),3);
+        assert.equal(await chat.locator('summary').textContent(),'Ver desglose (2)');
+        assert.deepEqual(await chat.locator('[data-request-entry]').evaluateAll(entries=>entries.map(e=>e.dataset.requestEntry)),['chat-1','chat-2']);
+        assert.match(await chat.locator('.alert-request-list').textContent(),/Segunda <img/);
+        assert.equal(await chat.locator('.alert-request-list img').count(),0);
+        assert.equal(await chat.locator('time').count(),2);
+        assert.equal(await chat.locator('[data-open-chat]').getAttribute('data-open-chat'),'chat-2,chat-1');
+        assert.equal(await page.locator('[data-alert-card="other-table"] details').count(),0);
+        assert.equal(await page.locator('[data-alert-card="song-2"] summary').textContent(),'Ver desglose (2)');
+        assert.equal(await page.locator('[data-alert-card="song-2"] [data-accept-request]').getAttribute('data-accept-request'),'song-2,song-1');
+        await chat.locator('summary').click();
+        await chat.screenshot({path:path.join(artifacts,'solicitudes-desglose.png')});
+        await page.evaluate(()=>{
+          const first=__app.state.requests.find(r=>r.id==='chat-1');
+          for(let i=3;i<=12;i++)__app.state.requests.push({...first,id:`chat-${i}`,message:`Solicitud ${i}`,created_at:`2026-10-16T20:${String(i).padStart(2,'0')}:00Z`});
+          __app.renderAlerts();
+          document.querySelector('[data-alert-card="chat-12"] .alert-request-list').scrollTop=90;
+        });
+        const expanded=page.locator('[data-alert-card="chat-12"] details');
+        assert(await expanded.evaluate(d=>d.open));
+        const scroll=await expanded.locator('ol').evaluate(el=>el.scrollTop);
+        assert(scroll>0);
+        await page.evaluate(()=>{__app.state.requests.find(r=>r.id==='chat-1').message='Mensaje actualizado';__app.renderAlerts();});
+        assert(await expanded.evaluate(d=>d.open));
+        assert.equal(await expanded.locator('ol').evaluate(el=>el.scrollTop),scroll);
+        assert.match(await expanded.textContent(),/Mensaje actualizado/);
+        await page.setViewportSize({width:390,height:844});
+        assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+        assert.deepEqual(page.errors,[]);
+      } finally {await page.context().close();}
     });
   } finally {await browser.close();await new Promise(r=>server.close(r));}
 });

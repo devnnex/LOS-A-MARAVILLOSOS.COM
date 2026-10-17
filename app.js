@@ -3785,17 +3785,27 @@ const App = (() => {
 
   const groupedActiveRequests = () => {
     const groups = new Map();
-    activeRequests().forEach((request) => {
+    [...activeRequests()].sort((left, right) =>
+      (Date.parse(right.created_at) || 0) - (Date.parse(left.created_at) || 0)
+      || String(right.id).localeCompare(String(left.id))).forEach((request) => {
       const kind = requestKind(request);
       const key = `${request.table_id}:${request.session_id || "no-session"}:${kind}`;
       if (!groups.has(key)) {
-        groups.set(key, { ...request, kind, request_ids: [], count: 0, latest_message: request.message || "" });
+        groups.set(key, { ...request, kind, request_ids: [], entries: [], count: 0, latest_message: request.message || "" });
       }
       const group = groups.get(key);
       group.request_ids.push(request.id);
+      group.entries.push(request);
       group.count += 1;
     });
     return Array.from(groups.values());
+  };
+
+  const requestGroupDetailsHtml = (request) => {
+    if (!["song", "chat"].includes(request.kind) || request.count < 2) return "";
+    const key = JSON.stringify([request.table_id, request.session_id || "no-session", request.kind]);
+    const entries = [...request.entries].reverse();
+    return `<details class="alert-request-details" data-request-group="${escapeHTML(key)}"><summary>Ver desglose (${request.count})</summary><ol class="alert-request-list">${entries.map((entry) => `<li data-request-entry="${escapeHTML(entry.id)}"><p>${escapeHTML(entry.message || "Sin mensaje")}</p><time datetime="${escapeHTML(entry.created_at || "")}">${escapeHTML(prettyDateTime(entry.created_at))}</time></li>`).join("")}</ol></details>`;
   };
 
   const renderAlerts = () => {
@@ -3805,7 +3815,8 @@ const App = (() => {
     const visibleAlerts = state.alertFilter === "all"
       ? alerts
       : alerts.filter((request) => request.kind === state.alertFilter);
-    const renderSignature = `${state.alertFilter}:${visibleAlerts.map((request) => `${request.id}:${request.count}:${request.latest_message}`).join("|")}`;
+    const renderSignature = JSON.stringify([state.alertFilter, visibleAlerts.map((request) =>
+      [request.kind, request.request_ids, request.entries.map((entry) => [entry.id, entry.message, entry.created_at])])]);
     box.classList.toggle("has-alerts", alerts.length > 0);
     const alertCards = visibleAlerts
       .map(
@@ -3825,6 +3836,7 @@ const App = (() => {
                   <h3><mark class="alert-table-name">${escapeHTML(tableLabel(request.restaurant_tables))}</mark></h3>
                   ${request.message && !parseBillMessage(request.message) ? `<p>${escapeHTML(request.message)}</p>` : ""}
                   <p>${prettyDateTime(request.created_at)}</p>
+                  ${requestGroupDetailsHtml(request)}
                 </div>
                 ${request.count > 1 ? `<strong class="alert-count" aria-label="${request.count} llamados">${request.count}</strong>` : ""}
                 ${
@@ -3841,10 +3853,18 @@ const App = (() => {
 
     $("#floatingAlerts")?.remove();
     if (renderSignature !== state.alertRenderSignature) {
+      const expanded = new Map([...box.querySelectorAll(".alert-request-details[open]")]
+        .map((details) => [details.dataset.requestGroup, details.querySelector(".alert-request-list")?.scrollTop || 0]));
       state.alertRenderSignature = renderSignature;
       box.innerHTML = visibleAlerts.length
         ? alertCards
         : emptyState("Sin solicitudes en este filtro", "Las nuevas solicitudes se acumularan aqui.", "bell");
+      box.querySelectorAll(".alert-request-details").forEach((details) => {
+        if (!expanded.has(details.dataset.requestGroup)) return;
+        details.open = true;
+        const list = details.querySelector(".alert-request-list");
+        if (list) list.scrollTop = expanded.get(details.dataset.requestGroup);
+      });
     }
 
     const signature = requestSignature();
