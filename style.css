@@ -4205,6 +4205,9 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 .receipt-print-hint { display: flex; align-items: center; justify-content: center; gap: .4rem; color: #667085; font-size: .7rem; }
 
 #accounts { min-width: 0; overflow: visible; }
+.accounts-search { display: grid; gap: .45rem; max-width: 28rem; margin-bottom: 1rem; font-weight: 700; }
+.accounts-search > span { display: flex; align-items: center; gap: .6rem; }
+.accounts-search input { flex: 1; min-width: 0; }
 #accounts .accounts-panel {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   align-items: stretch;

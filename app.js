@@ -4075,7 +4075,7 @@ const App = (() => {
   const renderTableManager = () => {
     const list = $("#tableManagerList");
     if (!list) return;
-    const qrTables = normalTables();
+    const qrTables = normalTables().sort((left, right) => Number(left.table_number || 0) - Number(right.table_number || 0));
     const validIds = new Set(qrTables.map((table) => String(table.id)));
     state.selectedTableQrIds = new Set(
       [...state.selectedTableQrIds].filter((id) => validIds.has(String(id)))
@@ -6160,17 +6160,37 @@ const App = (() => {
     if (!dialog.open) dialog.showModal();
   };
 
+  const accountTableNumber = (session) => {
+    const table = state.tables.find((row) => String(row.id) === String(session.table_id)) || session.restaurant_tables;
+    return Number(table?.table_number || String(sessionLabel(session)).match(/\d+/)?.[0] || Number.MAX_SAFE_INTEGER);
+  };
+
+  const matchesAccountSearch = (session, query) => {
+    const normalized = normalizeText(query);
+    if (!normalized) return true;
+    const digits = normalized.match(/^(?:mesa\s*|m\s*)?(\d+)$/);
+    return digits
+      ? accountTableNumber(session) === Number(digits[1])
+      : normalizeText(sessionLabel(session)).includes(normalized);
+  };
+
   const renderAccounts = () => {
     const box = $("#accountsPanel");
     if (!box) return;
-    const accountSessions = state.sessions.filter((session) => !isLocalWalkInSession(session) && sessionHasConsumption(session));
+    const accountSearch = $("#accountsSearch")?.value || "";
+    const accountSessions = state.sessions
+      .filter((session) => !isLocalWalkInSession(session) && sessionHasConsumption(session) && matchesAccountSearch(session, accountSearch))
+      .sort((left, right) => accountTableNumber(left) - accountTableNumber(right) || sessionLabel(left).localeCompare(sessionLabel(right), "es", { numeric: true }));
     const renderSignature = JSON.stringify([
+      accountSearch,
       state.business?.tax_rate,
       state.business?.service_fee,
       state.tipSettings?.enabled,
       state.tipSettings?.percentage,
       accountSessions.map((session) => [
         session.id,
+        accountTableNumber(session),
+        sessionLabel(session),
         session.status,
         session.payer_name,
         session.assigned_waiter_id,
@@ -6203,7 +6223,7 @@ const App = (() => {
             `;
           })
           .join("")
-      : emptyState("No hay cuentas abiertas", "Las mesas con consumos apareceran aqui.", "receipt-text");
+      : emptyState(accountSearch ? "No hay cuentas que coincidan" : "No hay cuentas abiertas", accountSearch ? "Busca por Mesa y número, o solo por el número." : "Las mesas con consumos apareceran aqui.", "receipt-text");
     if (state.activeAccountDetailId) renderAccountDetail();
     refreshIcons();
   };
@@ -8644,6 +8664,7 @@ const App = (() => {
       }
     });
     $("#tableManagerSearch")?.addEventListener("input", renderTableManager);
+    $("#accountsSearch")?.addEventListener("input", renderAccounts);
     $("#categoryForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       await saveCategory(event.currentTarget);
