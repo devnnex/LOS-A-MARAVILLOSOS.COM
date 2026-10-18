@@ -524,6 +524,115 @@ test('Marca, cartas, consumo y respuesta al clic en navegador', async (t) => {
       await admin.setViewportSize({width:1440,height:1000});
       assert.deepEqual(admin.errors, []);
     });
+    await t.test('consumo: aviso solo en mesas 43 a 58 y datos opcionales con selecciones largas', async () => {
+      const page=await makePage();
+      try {
+        await page.goto(`${origin}/admin.html`,{waitUntil:'domcontentloaded'});
+        await page.locator('#loginForm [name=username]').fill('prueba');
+        await page.locator('#loginForm [name=pin]').fill('1234');
+        await page.locator('#loginSubmit').click();
+        await page.waitForFunction(()=>document.body.classList.contains('admin-authenticated') && __app.state.tables.length===65);
+        const notices=await page.evaluate(()=>__app.state.tables.map(table=>{
+          __app.openConsumptionDialog('',{pendingTableId:table.id});
+          const visible=!document.querySelector('#consumptionOutdoorNotice').hidden;
+          document.querySelector('#consumptionDialog').close();
+          return {number:table.table_number,visible};
+        }));
+        assert.deepEqual(notices.filter(t=>t.visible).map(t=>t.number),Array.from({length:16},(_,i)=>43+i));
+        await page.evaluate(()=>{
+          const table=__app.state.tables.find(t=>t.table_number===43);
+          const session={id:'optional-session',table_id:table.id,restaurant_tables:table,status:'open',opened_at:new Date().toISOString(),session_items:Array.from({length:500},(_,i)=>({id:`optional-${i}`,item_name:'Cerveza',menu_item_id:'product-1',quantity:1,unit_price:5000,status:'served',created_at:new Date().toISOString()}))};
+          __app.state.sessions=[session];__mock.sessions.push(structuredClone(session));
+        });
+        for (const size of [{width:1440,height:1000},{width:1366,height:768},{width:390,height:844}]) {
+          await page.setViewportSize(size);
+          await page.evaluate(()=>__app.openConsumptionDialog('optional-session'));
+          const select=async()=>{
+            await page.locator('#consumptionProductSearch').fill('Cerveza');
+            await page.locator('[data-consumption-product]').first().click();
+            await page.waitForFunction(()=>document.activeElement?.name==='quantity');
+          };
+          const position=()=>page.locator('#consumptionOptionalFields summary').evaluate(el=>{
+            const rect=el.getBoundingClientRect();
+            const quantity=document.querySelector('#consumptionForm [name=quantity]').getBoundingClientRect();
+            return {top:rect.top,height:rect.height,gap:rect.top-quantity.bottom,bottom:rect.bottom};
+          });
+          await select();
+          const before=await position();
+          for (let i=0;i<18;i++) {
+            await select();
+            await page.locator('#consumptionForm [name=quantity]').fill('1');
+            await page.locator('#consumptionQueueButton').click();
+          }
+          await select();
+          const after=await position();
+          await page.screenshot({path:path.join(artifacts,`consumo-opcionales-${size.width}.png`)});
+          assert(after.height>25 && Math.abs(after.height-before.height)<1,`Datos opcionales no debe comprimirse en ${size.width}: ${JSON.stringify({before,after})}`);
+          assert(Math.abs(after.gap-before.gap)<2,'Datos opcionales debe conservar su lugar debajo de Cantidad');
+          if (size.width>640) assert(Math.abs(after.top-before.top)<2,`La lista acumulada no debe desplazar Datos opcionales: ${JSON.stringify({size,before,after})}`);
+          assert(after.top>=0 && after.bottom<=size.height,'Datos opcionales debe quedar dentro de la pantalla al seleccionar un producto');
+          assert(await page.locator('#consumptionOutdoorNotice').isVisible());
+          await page.locator('#consumptionOptionalFields summary').click();
+          assert(await page.locator('#consumptionForm [name=item_name]').isVisible());
+          await page.locator('#consumptionDialog [data-cancel-consumption]').first().click();
+        }
+        await page.evaluate(()=>{
+          __app.state.currentUser.role='waiter';document.body.dataset.userRole='waiter';
+          __app.openConsumptionDialog('optional-session');
+        });
+        assert(await page.locator('#consumptionOptionalFields summary').isVisible());
+        assert.deepEqual(page.errors,[]);
+      } finally {await page.context().close();}
+    });
+    await t.test('consumos personalizados se cobran sin descontar el producto usado como base', async () => {
+      const page=await makePage();
+      try {
+        await page.goto(`${origin}/admin.html`,{waitUntil:'domcontentloaded'});
+        await page.locator('#loginForm [name=username]').fill('prueba');
+        await page.locator('#loginForm [name=pin]').fill('1234');
+        await page.locator('#loginSubmit').click();
+        await page.waitForFunction(()=>document.body.classList.contains('admin-authenticated') && __app.state.tables.length===65);
+        await page.waitForFunction(()=>document.querySelector('#inventorySyncStatus').textContent.includes('Inventario sincronizado'));
+        await page.evaluate(()=>{
+          __app.state.inventoryMeta['product-1']={stock:20,costPrice:1000,code:'C',unit:'unidades'};
+          __app.openConsumptionDialog('',{pendingTableId:__app.state.tables[42].id});
+        });
+        for (const entry of [{quantity:2},{quantity:1,price:'4000'},{quantity:3,name:'Limón',price:'600'},{quantity:1,name:'Vaso'},{quantity:1,name:'Cerveza',renameBack:true}]) {
+          await page.locator('#consumptionProductSearch').fill('Cerveza');
+          await page.locator('[data-consumption-product]').first().click();
+          await page.waitForFunction(()=>document.activeElement?.name==='quantity');
+          await page.locator('#consumptionOptionalFields').evaluate(el=>el.open=true);
+          if (entry.renameBack) await page.locator('#consumptionForm [name=item_name]').fill('Vaso');
+          if (entry.name) await page.locator('#consumptionForm [name=item_name]').fill(entry.name);
+          if (entry.price) await page.locator('#consumptionForm [name=unit_price]').fill(entry.price);
+          await page.locator('#consumptionForm [name=quantity]').fill(String(entry.quantity));
+          await page.locator('#consumptionQueueButton').click();
+        }
+        await page.locator('#consumptionSubmitButton').click();
+        await page.waitForFunction(()=>!document.querySelector('#consumptionDialog').open && __mock.sessions[0]?.session_items.length===5);
+        const lines=await page.evaluate(()=>__mock.sessions[0].session_items);
+        assert.deepEqual(lines.map(l=>l.menu_item_id),['product-1','product-1',null,null,'product-1']);
+        assert.equal(await page.evaluate(()=>__app.state.inventoryMeta['product-1'].stock),20,'Agregar consumos no cambia existencias');
+        await page.evaluate(()=>__app.editConsumption(__mock.sessions[0].id,__mock.sessions[0].session_items[0].id));
+        assert(await page.locator('#consumptionOutdoorNotice').isVisible());
+        await page.locator('#consumptionForm [name=item_name]').fill('Sal');
+        await page.locator('#consumptionForm [name=unit_price]').fill('700');
+        await page.locator('#consumptionSubmitButton').click();
+        await page.waitForFunction(()=>!document.querySelector('#consumptionDialog').open && __app.state.sessions[0].session_items[0].item_name==='Sal');
+        assert.equal(await page.evaluate(()=>__app.state.sessions[0].session_items[0].menu_item_id),null);
+        await page.evaluate(()=>__app.openConsumptionDialog(__mock.sessions[0].id));
+        await page.locator('#chargeTableAccount').click();
+        await page.locator('#paymentForm [name=payment_method][value=transfer]').locator('..').click();
+        await page.locator('#paymentForm button[value=save]').click();
+        await page.waitForFunction(()=>!document.querySelector('#paymentDialog').open && __app.state.invoiceHistory.length===1);
+        const paid=await page.evaluate(()=>({stock:__app.state.inventoryMeta['product-1'].stock,invoice:__app.state.invoiceHistory[0],movements:__app.state.inventoryMovements}));
+        assert.equal(paid.stock,18,'Solo el precio editado y el nombre original deben descontar inventario');
+        assert.equal(paid.invoice.totals.total,17200,'Los consumos personalizados sí deben cobrarse');
+        assert.deepEqual(paid.invoice.items.map(l=>l.menu_item_id),[null,'product-1',null,null,'product-1']);
+        assert.equal(paid.movements.filter(m=>m.type==='SALIDA_VENTA').length,1);
+        assert.deepEqual(page.errors,[]);
+      } finally {await page.context().close();}
+    });
     await t.test('seleccionar con Enter y confirmar con doble espacio no duplica el consumo', async () => {
       await admin.evaluate(() => {__mock.sessionItemDelay=200;});
       await admin.evaluate(() => __app.openConsumptionDialog('session-consumption'));

@@ -4374,7 +4374,10 @@ const App = (() => {
     closeConsumptionProductOptions();
     $("#consumptionProductHint") && ($("#consumptionProductHint").textContent = `${item.name} seleccionado · escribe la cantidad y presiona Enter.`);
     window.requestAnimationFrame(() => {
+      form.scrollTop = 0;
+      $(".consumption-entry-panel", form).scrollTop = 0;
       form.quantity.focus({ preventScroll: true });
+      $("#consumptionOptionalFields summary")?.scrollIntoView({ block: "nearest", behavior: "instant" });
     });
   };
 
@@ -7498,7 +7501,7 @@ const App = (() => {
       return null;
     }
     return {
-      menuItemId: selectedItem?.id || null,
+      menuItemId: selectedItem && itemName === selectedItem.name.trim() ? selectedItem.id : null,
       itemName,
       quantity,
       unitPrice,
@@ -7986,6 +7989,11 @@ const App = (() => {
     dialog.addEventListener("close", () => { lastKey = ""; });
   };
 
+  const renderConsumptionTableNotice = (table) => {
+    const notice = $("#consumptionOutdoorNotice");
+    if (notice) notice.hidden = !(Number(table?.table_number) >= 43 && Number(table?.table_number) <= 58);
+  };
+
   const openConsumptionDialog = (sessionId = "", { pendingTableId = "", quickCheckout = false } = {}) => {
     const dialog = $("#consumptionDialog");
     const form = $("#consumptionForm");
@@ -8008,6 +8016,7 @@ const App = (() => {
     const optionalFields = $("#consumptionOptionalFields");
     if (optionalFields) optionalFields.open = false;
     const table = state.tables.find((entry) => String(entry.id) === String(pendingTableId || session?.table_id));
+    renderConsumptionTableNotice(table);
     if ($("#consumptionEyebrow")) $("#consumptionEyebrow").textContent = quickCheckout ? "Venta individual" : "Consumo";
     if ($("#consumptionDialogTitle")) $("#consumptionDialogTitle").textContent = quickCheckout ? "Agregar producto y cobrar" : `Agregar a ${table ? tableLabel(table) : "la cuenta"}`;
     const submitLabel = $("#consumptionSubmitButton span");
@@ -8048,6 +8057,7 @@ const App = (() => {
     const dialog = $("#consumptionDialog");
     if (!session || !item || item.status === "cancelled" || !form || !dialog || form.dataset.localSubmitInProgress === "1") return;
     const keepPreview = dialog.open && !$("#tableConsumptionPreview")?.hidden && form.session_id.value === session.id;
+    renderConsumptionTableNotice(state.tables.find((table) => String(table.id) === String(session.table_id)));
     if (keepPreview && state.consumptionDrafts.length) {
       toast("Confirma o elimina la seleccion pendiente antes de editar un consumo.", "error", "pending-items-before-edit");
       return;
@@ -8185,7 +8195,7 @@ const App = (() => {
     const payload = {
       session_id: sessionId,
       table_id: session.table_id,
-      menu_item_id: selectedItem?.id || null,
+      menu_item_id: selectedItem && name === selectedItem.name.trim() ? selectedItem.id : null,
       item_name: name,
       unit_price: price,
       quantity,

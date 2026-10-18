@@ -255,7 +255,6 @@ body[data-user-role="waiter"] [data-manager-only],
 body:not([data-user-role="boss"]) [data-boss-only] { display: none !important; }
 body[data-user-role="waiter"] #consumptionOptionalFields .consumption-admin-field { display: none; }
 body[data-user-role="waiter"] #consumptionOptionalFields .consumption-optional-grid { grid-template-columns: 1fr; }
-body[data-user-role="waiter"] #consumptionOptionalFields,
 body[data-user-role="waiter"] #tableSessionActions,
 body[data-user-role="waiter"] #tableConsumptionPreview,
 body[data-user-role="waiter"] .sound-box { display: none !important; }
@@ -5183,6 +5182,12 @@ body[data-page="admin"] { overflow-x: hidden; }
 .consumption-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); gap: 1rem; align-items: stretch; }
 .consumption-layout.without-consumption-preview { grid-template-columns: minmax(0, 1fr); }
 .consumption-entry-panel { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.consumption-entry-panel > .consumption-optional { flex-shrink: 0; }
+#consumptionDialog .modal-card > .section-head { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+#consumptionDialog .modal-card > .section-head > .icon-btn { grid-column: -2; grid-row: 1; justify-self: end; }
+.consumption-outdoor-notice { display: flex; align-items: center; justify-self: center; gap: .55rem; width: fit-content; padding: .65rem .9rem; border: 2px solid #b45309; border-radius: 10px; color: #78350f; background: #fde68a; font-size: 1rem; font-weight: 900; }
+.consumption-outdoor-notice[hidden] { display: none; }
+.consumption-outdoor-notice svg { flex-shrink: 0; }
 #consumptionDialog .consumption-entry-panel > .modal-actions { margin-top: auto; }
 #consumptionDialog #viewTableConsumption { display: none; }
 body[data-user-role="waiter"] #consumptionDialog #tableConsumptionPreview:not([hidden]) { display: grid !important; }
@@ -5209,7 +5214,8 @@ body[data-user-role="waiter"] #consumptionDialog #tableConsumptionPreview:not([h
 }
 @media (max-width: 640px) {
   #consumptionDialog .modal-card { display: flex; flex-direction: column; min-height: 0; height: auto; }
-  #consumptionDialog .modal-card > .section-head { flex: none; }
+  #consumptionDialog .modal-card > .section-head { flex: none; grid-template-columns: minmax(0, 1fr) auto; }
+  #consumptionDialog .consumption-outdoor-notice { grid-column: 1 / -1; grid-row: 2; }
   #consumptionDialog .consumption-layout { display: flex; flex-direction: column; gap: 1rem; flex: none; }
   #consumptionDialog .consumption-entry-panel { display: contents; }
   #consumptionDialog .consumption-entry-panel > * { order: 4; flex: none; }
