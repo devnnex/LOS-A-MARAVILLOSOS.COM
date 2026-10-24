@@ -4195,7 +4195,9 @@ button:active, .primary:active, .ghost:active, .icon-btn:active, .chip:active { 
 .table-consumption-preview-head { padding-bottom: .5rem; border-bottom: 1px dashed rgba(18, 24, 31, .16); }
 .table-consumption-preview-title { display: inline-flex; align-items: baseline; gap: .45rem; min-width: 0; }
 .table-consumption-preview-title > small { color: #7a8492; font-size: .68rem; font-weight: 750; white-space: nowrap; }
-.table-consumption-preview-lines { display: grid; gap: .42rem; }
+/* El flujo normal evita recalcular todas las filas al confirmar un consumo. */
+.table-consumption-preview-lines { display: block; }
+.table-consumption-preview-lines > * + * { margin-top: .42rem; }
 .table-consumption-preview-lines > div { color: #4f5967; font-size: .79rem; }
 .table-consumption-item { min-width: 0; display: grid; gap: .1rem; }
 .table-consumption-item > span { overflow-wrap: anywhere; }
@@ -5239,7 +5241,7 @@ body[data-user-role="waiter"] #consumptionDialog #tableConsumptionPreview:not([h
   #consumptionDialog .table-consumption-preview-title > span { font-size: .83rem; font-weight: 600; color: #475569; }
   #consumptionDialog .table-consumption-preview-title { flex-wrap: wrap; }
   #consumptionDialog .table-consumption-preview-title > small { color: #64748b; font-size: .75rem; font-weight: 400; }
-  #consumptionDialog .table-consumption-preview-lines { gap: 0; }
+  #consumptionDialog .table-consumption-preview-lines > * + * { margin-top: 0; }
   #consumptionDialog .table-consumption-item { min-width: 0; overflow-wrap: anywhere; }
   #consumptionDialog .table-consumption-preview-lines > :is(div, .table-consumption-edit) { align-items: start; gap: .75rem; padding: .8rem 0; border-bottom: 1px solid #edf1f5; color: #263447; font-size: .9rem; font-weight: 450; line-height: 1.5; }
   #consumptionDialog .table-consumption-preview-lines strong { color: #20334b; font-weight: 600; font-variant-numeric: tabular-nums; }

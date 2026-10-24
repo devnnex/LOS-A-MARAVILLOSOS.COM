@@ -708,6 +708,7 @@ test('Marca, cartas, consumo y respuesta al clic en navegador', async (t) => {
         __mock.sessionItemDelay=50;
       });
       const clickTimes=[];
+      const heartbeatTimes=[];
       try {
         for(let cycle=0;cycle<3;cycle++){
           await admin.evaluate(()=>__app.openConsumptionDialog('session-stress'));
@@ -741,12 +742,14 @@ test('Marca, cartas, consumo y respuesta al clic en navegador', async (t) => {
           assert(refresh.nodeRetained);assert(refresh.flashRetained,'Actualizar datos no debe reiniciar el parpadeo');
           assert(refresh.renderMs<150,`Actualización del desglose: ${refresh.renderMs} ms`);
           assert(refresh.heartbeatMs<150,`La interfaz debe responder durante el parpadeo: ${refresh.heartbeatMs} ms (actualización ${refresh.renderMs} ms)`);
+          heartbeatTimes.push(Math.round(refresh.heartbeatMs));
           await admin.waitForFunction(()=>!document.querySelector('#consumptionDialog').open);
           assert.equal(await admin.locator('.consumption-just-added').count(),0);
           assert.equal(await admin.evaluate(()=>document.querySelector('#consumptionForm').dataset.localSubmitInProgress),undefined);
           assert.equal(await admin.evaluate(()=>__app.state.sessions[0].session_items.length),1501+cycle);
         }
         t.diagnostic(`Respuesta del clic con 1500 consumos, tres confirmaciones: ${clickTimes.join(', ')} ms`);
+        t.diagnostic(`Respuesta durante el parpadeo con 1500 consumos: ${heartbeatTimes.join(', ')} ms`);
       } finally {
         await admin.evaluate(()=>{
           __app.state.sessions=__originalConsumptionSessions;
