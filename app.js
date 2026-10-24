@@ -7211,11 +7211,35 @@ const App = (() => {
     }).filter((entry) => entry.item && entry.quantity > 0);
   };
 
+  let paymentInventoryWarningTimer;
+  const showPaymentInventoryWarning = (shortages) => {
+    clearTimeout(paymentInventoryWarningTimer);
+    $("#paymentInventoryWarning")?.remove();
+    const warning = document.createElement("div");
+    warning.id = "paymentInventoryWarning";
+    warning.className = "payment-inventory-warning";
+    warning.setAttribute("popover", "manual");
+    warning.setAttribute("role", "status");
+    warning.setAttribute("aria-live", "polite");
+    warning.innerHTML = `<div class="system-modal"><div class="system-modal-icon">${icon("package-search", 24)}</div><div><strong>Revisemos las existencias</strong><p>Aún no podemos cobrar porque faltan existencias. Por favor, aumenta el inventario de estos productos:</p><ul></ul><p>Después, vuelve a intentar el cobro. La cuenta sigue abierta.</p></div></div>`;
+    shortages.forEach(({ item, quantity }) => {
+      const available = inventoryFor(item).stock;
+      const line = document.createElement("li");
+      line.textContent = `${item.name}: aumenta ${quantity - available} unidades (inventario: ${available}; necesarias: ${quantity}).`;
+      $("ul", warning).appendChild(line);
+    });
+    ($("#paymentDialog") || document.body).appendChild(warning);
+    if (typeof warning.showPopover === "function") warning.showPopover();
+    else warning.setAttribute("data-fallback", "");
+    refreshIcons();
+    try { navigator.vibrate?.([80, 40, 80]); } catch (error) { /* La animación también destaca el aviso sin vibración del dispositivo. */ }
+    paymentInventoryWarningTimer = window.setTimeout(() => warning.remove(), 5000);
+  };
+
   const validatePaidInventory = (plan) => {
-    const insufficient = plan.find((entry) => inventoryFor(entry.item).stock < entry.quantity);
-    if (!insufficient) return true;
-    const available = inventoryFor(insufficient.item).stock;
-    toast(`${insufficient.item.name} requiere ${insufficient.quantity} y solo hay ${available}. Corrige la cuenta o el inventario antes de cobrar.`, "error", `payment-stock:${insufficient.item.id}`);
+    const insufficient = plan.filter((entry) => inventoryFor(entry.item).stock < entry.quantity);
+    if (!insufficient.length) return true;
+    showPaymentInventoryWarning(insufficient);
     return false;
   };
 
